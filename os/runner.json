@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "provisioned": false,
+  "architecture": "x86_64",
+  "os": "Ubuntu 24.04 LTS",
+  "vcpus": 32,
+  "ram_gib": 128,
+  "workspace_storage_gib": 1024,
+  "minimum_free_gib_at_start": 600,
+  "workspace_mount": "/srv/android",
+  "filesystem": "ext4 case-sensitive local NVMe",
+  "swap": "disabled on signing host; encrypted if enabled on build host",
+  "hardware_virtualization": "Not required for compilation. Optional separate emulator runner needs KVM; physical tests use the development Pixel after explicit approval.",
+  "build_jobs": 16,
+  "repo_sync_jobs": 8,
+  "packages": ["repo", "git", "git-lfs", "gnupg", "openssh-client", "zip", "unzip", "rsync", "build-essential", "fontconfig", "libfreetype6", "fonts-dejavu-core", "openssl", "gperf", "libc6-i386", "lib32gcc-s1", "python3", "curl", "ca-certificates"],
+  "additional_dependency": "Node.js 24 LTS and Yarn; record verified installer and exact versions in runner image manifest",
+  "runner_image_digest": null,
+  "network": "Existing authenticated egress proxy and supplied CA trust; no policy bypass",
+  "signing": "Separate offline host, tmpfs working area, no public CI jobs or network",
+  "retention": "Preserve signed target-files, full OTA, factory image, sources, checksums, SBOM and evidence for every shipped build outside ephemeral workspace"
+}

@@ -1,0 +1,15 @@
+[project]
+name = "pixel-action-bridge"
+version = "0.1.0"
+description = "Explicitly confirmed Android intents over a durable single-device relay"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "fastapi==0.141.1",
+  "httpx==0.28.1",
+  "mcp==1.29.0",
+  "pydantic==2.13.4",
+  "uvicorn==0.52.1",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

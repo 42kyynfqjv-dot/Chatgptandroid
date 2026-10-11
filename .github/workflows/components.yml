@@ -1,0 +1,65 @@
+name: Independent components
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: components-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  bridge-and-release-controls:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4, verified 2026-10-11
+        with:
+          persist-credentials: false
+      - name: Install locked Python dependencies
+        run: |
+          python3.12 -m venv .venv
+          .venv/bin/python -m pip install --require-hashes -r bridge/requirements.lock
+      - name: Exercise bridge and source/release failure boundaries
+        run: |
+          .venv/bin/python -m unittest discover -s tests -v
+          cd bridge
+          ../.venv/bin/python -m unittest discover -s tests -v
+          ../.venv/bin/python -m pixel_bridge.export_openapi --origin https://relay.example.invalid > actions.openapi.json
+          git diff --exit-code -- actions.openapi.json
+
+  android:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Use runner JDK 17 and isolated build state
+        run: |
+          echo "JAVA_HOME=$JAVA_HOME_17_X64" >> "$GITHUB_ENV"
+          echo "$JAVA_HOME_17_X64/bin" >> "$GITHUB_PATH"
+          echo "ANDROID_USER_HOME=$RUNNER_TEMP/android-user" >> "$GITHUB_ENV"
+          echo "GRADLE_USER_HOME=$RUNNER_TEMP/gradle" >> "$GITHUB_ENV"
+      - name: Install pinned Android build tools
+        run: bash scripts/setup-android-sdk.sh
+      - name: Test policy and journal
+        run: bash android/test-core.sh
+      - name: Build and lint APK
+        working-directory: android
+        run: ./gradlew --no-daemon assembleDebug lintDebug
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: android-debug-and-lint
+          path: |
+            android/app/build/outputs/apk/debug/*.apk
+            android/app/build/reports/lint-results-debug.*
+          if-no-files-found: error
+          retention-days: 7
+
+# Full OS builds are intentionally absent from public PR jobs. Use the dedicated
+# runner with reviewed source pins. Production signing/publication are separate.

@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "status": "blocked-unverified",
+  "foundation": "GrapheneOS",
+  "device": "tegu",
+  "manifest_url": "https://github.com/GrapheneOS/platform_manifest.git",
+  "observed_stable_tag": "2026100600",
+  "observed_at": "2026-10-11",
+  "tag": null,
+  "manifest_commit": null,
+  "allowed_signers_sha256": null,
+  "patch_series_sha256": null,
+  "platform_security_patch": null,
+  "vendor": {"build_id": null, "factory_sha256": null, "source_url": null},
+  "kernel": {"source_commit": null, "prebuilts_sha256": null},
+  "update_url": null,
+  "keys": {"ota_cert_sha256": null, "avb_public_key_sha256": null, "platform_cert_sha256": null},
+  "review_reference": null
+}

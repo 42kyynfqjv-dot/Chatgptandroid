@@ -1,0 +1,8 @@
+# Replace the reserved example hostname with your own DNS name.
+# Run Caddy on the SAME host as the relay. Keep relay port 8765 private.
+relay.example.invalid {
+    request_body {
+        max_size 4KB
+    }
+    reverse_proxy 127.0.0.1:8765
+}

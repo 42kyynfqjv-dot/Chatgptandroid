@@ -1,0 +1,12 @@
+This is an independent development project. It is not an OpenAI, Google,
+GrapheneOS, or LineageOS product and has no implied endorsement.
+
+The root MIT license covers original files in this repository only. It does
+not relicense Android/AOSP, GrapheneOS, Linux, Google vendor components,
+firmware, SDK/build tools, Python dependencies, or the official ChatGPT app.
+Their respective licenses and distribution terms continue to apply. Preserve
+their notices and provide required source/offer materials for any future OS
+binary distribution. See docs/os-foundation.md and docs/bridge-candidates.md.
+
+No ChatGPT APK, vendor images, firmware, release signing keys, or code copied
+from the reviewed third-party Android bridge projects is included.

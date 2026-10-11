@@ -1,0 +1,359 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Pixel action relay",
+    "version": "0.1.0",
+    "description": "Prototype single-owner phone relay. Bearer API key is the session's operator credential. Every action still requires on-device confirmation. Action statuses never prove app-level completion."
+  },
+  "paths": {
+    "/v1/actions": {
+      "post": {
+        "summary": "Request Action",
+        "description": "Queue a phone action for explicit on-device confirmation. Use a new random idempotency key per user-authorized request; reuse the same key only to recover an uncertain response. Never infer completion from handoff.",
+        "operationId": "requestDeviceAction",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/OpenAppRequest"
+                  },
+                  {
+                    "$ref": "#/components/schemas/AlarmRequest"
+                  }
+                ],
+                "title": "Request",
+                "discriminator": {
+                  "propertyName": "action",
+                  "mapping": {
+                    "open_app": "#/components/schemas/OpenAppRequest",
+                    "set_alarm": "#/components/schemas/AlarmRequest"
+                  }
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Action"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "x-openai-isConsequential": true
+      }
+    },
+    "/v1/actions/{action_id}": {
+      "get": {
+        "summary": "Get Action",
+        "operationId": "getActionStatus",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "action_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Action Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Action"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Action": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "open_app",
+              "set_alarm"
+            ],
+            "title": "Action"
+          },
+          "params": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OpenAppParams"
+              },
+              {
+                "$ref": "#/components/schemas/AlarmParams"
+              }
+            ],
+            "title": "Params"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "awaiting_confirmation",
+              "handed_off",
+              "rejected",
+              "expired",
+              "failed",
+              "unknown"
+            ],
+            "title": "Status"
+          },
+          "created_at": {
+            "type": "number",
+            "title": "Created At"
+          },
+          "expires_at": {
+            "type": "number",
+            "title": "Expires At"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 240,
+                "pattern": "^[^\\x00-\\x1f\\x7f]*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "action",
+          "params",
+          "status",
+          "created_at",
+          "expires_at"
+        ],
+        "title": "Action"
+      },
+      "AlarmParams": {
+        "properties": {
+          "hour": {
+            "type": "integer",
+            "maximum": 23.0,
+            "minimum": 0.0,
+            "title": "Hour"
+          },
+          "minute": {
+            "type": "integer",
+            "maximum": 59.0,
+            "minimum": 0.0,
+            "title": "Minute"
+          },
+          "label": {
+            "type": "string",
+            "maxLength": 80,
+            "pattern": "^[^\\x00-\\x1f\\x7f]*$",
+            "title": "Label",
+            "default": ""
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "hour",
+          "minute"
+        ],
+        "title": "AlarmParams"
+      },
+      "AlarmRequest": {
+        "properties": {
+          "action": {
+            "type": "string",
+            "const": "set_alarm",
+            "title": "Action"
+          },
+          "params": {
+            "$ref": "#/components/schemas/AlarmParams"
+          },
+          "idempotency_key": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 16,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "Idempotency Key"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "action",
+          "params",
+          "idempotency_key"
+        ],
+        "title": "AlarmRequest"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "OpenAppParams": {
+        "properties": {
+          "app": {
+            "type": "string",
+            "enum": [
+              "chatgpt",
+              "settings",
+              "clock",
+              "browser"
+            ],
+            "title": "App"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "app"
+        ],
+        "title": "OpenAppParams"
+      },
+      "OpenAppRequest": {
+        "properties": {
+          "action": {
+            "type": "string",
+            "const": "open_app",
+            "title": "Action"
+          },
+          "params": {
+            "$ref": "#/components/schemas/OpenAppParams"
+          },
+          "idempotency_key": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 16,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "Idempotency Key"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "action",
+          "params",
+          "idempotency_key"
+        ],
+        "title": "OpenAppRequest"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    },
+    "securitySchemes": {
+      "HTTPBearer": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    }
+  },
+  "servers": [
+    {
+      "url": "https://relay.example.invalid"
+    }
+  ]
+}
