@@ -14,6 +14,11 @@ The next step is the [on-device MCP proof](docs/on-device-mcp.md); the current
 APK does not yet host an MCP server, and official ChatGPT's connection to a
 phone-local endpoint is unproven.
 
+**Current phase: build a small APK and test on the dev Pixel.** Use the modest
+cloud server for component builds and the local MacBook for USB transfer/testing.
+A full Android source build or larger server is not required for this phase;
+replacement-OS compilation belongs to a later milestone.
+
 Cloud verification: Android debug APK built, lint clean, 44 Python tests and
 84 Java safety assertions passed. Official ChatGPT-to-phone execution and the
 complete OS build remain unverified; see the verification record below.

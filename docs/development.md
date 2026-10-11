@@ -1,5 +1,11 @@
 # Development and build-server setup
 
+**Immediate scope: APK development and physical tests on the dev Pixel.** The
+existing modest cloud server is the component build environment; the local
+MacBook handles approved USB transfer/testing. Do not start a full Android
+source build or provision a larger runner for this phase. The full-OS runner
+section below is a later-stage planning reference.
+
 The server compiles the software. The owner's **dev Pixel** supplies physical
 hardware testing after explicit installation/flash approval. KVM and an emulator
 are not required for that workflow.
