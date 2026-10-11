@@ -1,6 +1,6 @@
 # Verification record
 
-Session date: **2026-10-11**. Initial repository state: an empty Git checkout;
+Initial-build snapshot date: **2026-10-11**, before GitHub publication. Initial repository state: an empty Git checkout;
 the earlier local Android/Python scaffold was not present. All implementation
 here was created and reviewed in this cloud workspace.
 

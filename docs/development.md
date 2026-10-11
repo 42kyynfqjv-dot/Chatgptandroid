@@ -4,6 +4,14 @@ The server compiles the software. The owner's **dev Pixel** supplies physical
 hardware testing after explicit installation/flash approval. KVM and an emulator
 are not required for that workflow.
 
+The deployment layout is a **cloud dev server**, a **local MacBook**, and a
+**local dev Pixel**. The cloud server produces artifacts; the MacBook downloads
+and verifies them, then handles an approved USB installation/test procedure on
+the Pixel. The cloud server does not need direct USB access to the phone. A
+separately configured HTTPS relay can accept the Pixel's outbound requests;
+neither the phone nor the MacBook needs a public inbound listener. Serving a
+relay and connecting the ChatGPT Plugin are separate steps from compilation.
+
 ## Component development
 
 Use Linux x86-64, Python 3.12, JDK 17 or 21, `make`, Git, curl, unzip and ordinary
@@ -62,8 +70,8 @@ Transfer this source checkout (or its source archive) and public documentation;
 exclude `.venv`, SDK/Gradle caches, runtime databases, pairing credentials, debug
 keys, and build output. Recreate dependencies using the pinned files. Do not
 place relay credentials or OS signing keys in Git. If using GitHub, review the
-pending source and secret scan before publishing; this session prepares files
-locally and does not publish them to GitHub.
+pending source and secret scan before publishing. Publishing source to GitHub
+does not publish a signed OS release or authorize phone installation.
 
 On the destination, run `python3 scripts/environment-report.py` and the component
 checks above first. Preserve the report with build provenance. The program

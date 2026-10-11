@@ -61,3 +61,8 @@ performs hardware and official-app validation after approval. An isolated signin
 process holds production keys. KVM/emulation is optional and unnecessary for the
 physical-device workflow. Public pull-request CI never receives production
 credentials or access to a signing host.
+
+The server is in the cloud; the MacBook and Pixel are local. Download verified
+build artifacts to the MacBook for approved USB installation/testing on the
+Pixel. The phone connects outbound to a separately deployed HTTPS relay; no
+cloud-to-phone localhost connection or public listener on the MacBook is needed.
