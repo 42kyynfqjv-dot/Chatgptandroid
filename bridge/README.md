@@ -1,5 +1,11 @@
 # Pixel action bridge prototype
 
+**Superseded transport experiment.** The chosen product requires its MCP server
+and action executor to run on the Pixel, with no cloud relay. This Python
+implementation is retained as protocol/security reference code; do not deploy
+it as the product. See [the on-device plan](../docs/on-device-mcp.md). Its passing
+tests do not establish that the phone hosts MCP or that ChatGPT can connect.
+
 This working Python prototype queues two explicitly confirmed Android intents:
 `open_app` and `set_alarm`. It provides a durable HTTPS relay, an official MCP
 Python SDK adapter, and an operator-only GPT Actions OpenAPI schema. It is a

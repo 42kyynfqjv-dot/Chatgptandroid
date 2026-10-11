@@ -7,10 +7,11 @@ are not required for that workflow.
 The deployment layout is a **cloud dev server**, a **local MacBook**, and a
 **local dev Pixel**. The cloud server produces artifacts; the MacBook downloads
 and verifies them, then handles an approved USB installation/test procedure on
-the Pixel. The cloud server does not need direct USB access to the phone. A
-separately configured HTTPS relay can accept the Pixel's outbound requests;
-neither the phone nor the MacBook needs a public inbound listener. Serving a
-relay and connecting the ChatGPT Plugin are separate steps from compilation.
+the Pixel. MCP and device execution belong **on the Pixel**, with no project
+cloud runtime or relay. The existing Python relay is a superseded experiment;
+do not deploy it as a prerequisite. See [on-device MCP](on-device-mcp.md).
+The cloud server is modest and its actual specs remain to be checked. The large
+runner profile below applies only to compiling the complete Android OS.
 
 ## Component development
 

@@ -1,5 +1,11 @@
 # Account and Pixel 9a validation gates
 
+**Current architecture gate:** MCP and tool execution must be on the Pixel,
+with no off-device relay. First demonstrate a documented official ChatGPT
+Android call to a harmless phone-local tool. The remote Plugin/relay procedures
+below belong to the earlier experiment; they cannot satisfy this new gate and
+must not be treated as the chosen deployment plan. See [on-device MCP](on-device-mcp.md).
+
 Prepared **2026-10-11**. **No account integration or physical-device test has been run.** This document is a future test protocol, not an installation instruction to execute now. The user has explicitly withheld authorization to install, flash, unlock, wipe, or otherwise modify their physical phone without separate approval. No step below grants that approval.
 
 The [feasibility assessment](chatgpt-feasibility.md) distinguishes current Plugin documentation from legacy MCP and GPT Actions guidance. Complete web, Android typed, and Android Voice tests separately. Do not mark one passed because a local harness or Codex desktop can invoke MCP tools.

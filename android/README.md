@@ -1,5 +1,11 @@
 # AI Home Android prototype
 
+**Current target:** host MCP and execute tools on the Pixel. This APK does not
+yet host an MCP server; its remote relay controls belong to the superseded
+transport experiment. Normal launcher/Settings functions are independent of
+that experiment. Do not configure a cloud relay as a product prerequisite.
+See [the on-device MCP proof](../docs/on-device-mcp.md).
+
 AI Home is an optional HOME launcher and an explicitly operated relay client. It is **not an operating system, a ROM, an OpenAI product, or a privileged device agent**. It can run on a compatible Android OS while the stock Settings, system controls, installed apps, and the existing launcher remain available. Minimum Android API 30; built against API 35 for the Pixel 9a project.
 
 ## What the app does

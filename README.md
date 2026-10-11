@@ -6,6 +6,14 @@ is a small **GrapheneOS derivative**, with our own signing keys and OTA channel.
 This checkout is an initial bridge/launcher prototype and release-engineering
 foundation. **It is not a built or flashable replacement OS.**
 
+**Target architecture: MCP and device actions run on the Pixel.** The cloud
+server is for builds; the local MacBook handles USB installation/testing. No
+cloud MCP server or device relay is required by the intended product. The
+existing Python relay is an earlier experiment, not the chosen architecture.
+The next step is the [on-device MCP proof](docs/on-device-mcp.md); the current
+APK does not yet host an MCP server, and official ChatGPT's connection to a
+phone-local endpoint is unproven.
+
 Cloud verification: Android debug APK built, lint clean, 44 Python tests and
 84 Java safety assertions passed. Official ChatGPT-to-phone execution and the
 complete OS build remain unverified; see the verification record below.
@@ -26,7 +34,8 @@ with our future OS build still needs testing on the dev Pixel.
 | Current official ChatGPT capability and account/client limits | [Feasibility matrix](docs/chatgpt-feasibility.md) |
 | What actually passed here and what remains untested | [Verification record](docs/verification.md) |
 | Launcher, Clock handoff, explicit device confirmation | [Android component](android/README.md) |
-| Authenticated relay, MCP SDK tools, status model | [Bridge component](bridge/README.md) |
+| On-device MCP target and immediate proof | [On-device MCP](docs/on-device-mcp.md) |
+| Earlier relay experiment and protocol tests | [Bridge reference](bridge/README.md) |
 | Reproducible setup and dev-server transfer | [Development guide](docs/development.md) |
 | Upstream imports, signing, OTA rollout, emergency updates | [Security-update process](docs/security-updates.md) |
 | Stages and acceptance criteria | [Roadmap](docs/roadmap.md) |
@@ -38,12 +47,13 @@ with our future OS build still needs testing on the dev Pixel.
 The optional Android HOME app offers a prominent ChatGPT entry and offline
 access to the normal Android Settings and system controls. App installation and
 updates use a fixed Play link in its settings area, without a store-browsing home
-experience. The supported Play Store itself stays unmodified. A visible test screen
+experience. The supported Play Store itself stays unmodified. In the earlier experiment, a visible test screen
 polls the relay and asks the user to approve each request. Only allowlisted app
 launches and Clock alarm requests are implemented. No shell, calls, SMS,
 accessibility automation, ChatGPT APK modification, or undocumented endpoint is
 used. The foreground harness is temporary; the final product requires OS
-integration and a tested device-service lifecycle.
+integration and an on-device MCP service. The remote polling screen is not the
+intended product connection.
 
 The Python MCP SDK adapter exposes `open_app`, `set_alarm`, and
 `get_action_status`. The relay uses separate operator and device credentials,

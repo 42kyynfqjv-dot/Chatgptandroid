@@ -1,5 +1,12 @@
 # Initial bridge threat model
 
+This document records the earlier server-relay experiment. The chosen product
+hosts MCP and device actions on the Pixel; no project cloud relay is part of
+that target. Retain the validation/confirmation/replay lessons, but reassess
+local caller authentication and Android service lifecycle for the
+[on-device implementation](on-device-mcp.md). The remote deployment checklist
+below is historical reference, not the current plan.
+
 ## Scope and trust
 
 The official ChatGPT app and cloud account remain outside this project's trust

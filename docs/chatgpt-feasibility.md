@@ -4,7 +4,9 @@ Research date: **2026-10-11**. This is a documented-capability assessment, not a
 
 ## Decision
 
-Use the unmodified official ChatGPT Android app for conversation, account access, memory, subscription features, and Voice. Build a small launcher and independently authenticated Android action service around it. The supported integration candidate is a **Plugin containing an MCP server**, reached through a private Secure MCP Tunnel or an authenticated public HTTPS service, with the phone making an outbound authenticated connection to a relay.
+Use the unmodified official ChatGPT Android app for conversation, account access, memory, subscription features, and Voice. **The MCP server and device executor must run on the Pixel, with no project cloud runtime or device relay.** A documented way for official ChatGPT Android to connect to that phone-hosted endpoint has not been established. Mobile Plugin availability is not evidence of local MCP execution or connectivity. The immediate gate is the [on-device proof](on-device-mcp.md).
+
+The remote MCP/tunnel/relay research below records the earlier experiment and platform capabilities requested in the original investigation. It is not the chosen architecture or authorization to deploy a server. Do not silently fall back to it if local official-client connectivity is unsupported.
 
 Current official documentation supports mobile Plugins and, in a dated September 23, 2026 release note, Live Voice using available plugins on Android. That makes the requested integration a credible candidate, **not a demonstrated capability for this user's account, this custom plugin, or Pixel 9a**. Older official pages still describe incompatible restrictions. Gate production work on the account/client tests in [account-device-validation.md](account-device-validation.md).
 
@@ -46,9 +48,9 @@ The user supplied the official Play listing and has a development Pixel availabl
 
 The appropriate conclusion is **conditional feasibility with account, Android text, and Android Voice gates**. Neither “Voice is impossible” nor “mobile Voice already works” follows from the available evidence. Ask OpenAI support for clarification if the actual supported UI cannot expose this custom plugin after setup; do not replace the path with private APIs.
 
-## Transport and authentication decision
+## Earlier remote transport research — outside the chosen architecture
 
-Target private-test path:
+Historical private-test candidate (superseded; not deployed):
 
 ```mermaid
 flowchart LR

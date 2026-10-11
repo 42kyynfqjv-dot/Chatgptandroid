@@ -21,30 +21,29 @@ show its ordinary UI when opened. Play updates the app independently of OS OTA.
 The UI is not embedded, intercepted, scraped, or cloned. No API subscription is
 assumed to be interchangeable with the user's ChatGPT subscription.
 
-## ADR-003: Outbound relay, explicit device approval
+## ADR-003: MCP and device execution on the Pixel
 
 ```mermaid
 flowchart LR
-    A[Official ChatGPT client] -->|Supported Plugin auth and transport: validation gate| B[MCP adapter]
-    B -->|Operator credential| C[HTTPS single-device relay]
-    D[Android confirmation harness] -->|Outbound polling with device credential| C
-    C -->|Bounded request| D
-    D --> E[Visible user approval]
-    E --> F[Allowlisted Android intent]
-    D -->|Status only| C
-    C --> B
+    subgraph Pixel
+        A[Official ChatGPT Android] -. Documented local connection: unproven .-> B[On-device MCP service: planned]
+        B --> C[Local validation and approval]
+        C --> D[Allowlisted Android action]
+    end
 ```
 
-The initial runnable MCP adapter and relay are independently testable without
-access to the official app. The first edge is **not demonstrated** in this
-checkout. The development MCP endpoint must not be exposed publicly as a
-substitute for supported OAuth/private transport setup.
+There is no project-operated cloud runtime or remote relay in the target.
+The existing Python adapter/relay and Android polling screen are an earlier
+experiment, not this implementation. No service has been deployed.
 
-The phone initiates the network connection, so no cloud service attempts to
-reach phone localhost. Android's restrictions on background execution and
-background Activity launches are respected: the prototype uses a foreground
-screen. A later OS service needs separate lifecycle, notification, locked-device,
-battery, revocation, and privacy decisions before it can replace this harness.
+The first proof is a harmless read-only tool on a phone-hosted MCP endpoint,
+then a documented official ChatGPT Android connection to it. The latter is
+**not established** by current tests or mobile Plugin documentation. A Mac/USB
+client test does not prove it. See [the on-device plan](on-device-mcp.md).
+
+Android execution and background-activity restrictions still apply. Start with
+a visible local service and retain explicit confirmation. Do not work around an
+unsupported official-client connection with private APIs or a cloud relay.
 
 ## ADR-004: Conservative results and at-most-once attempts
 
@@ -64,5 +63,6 @@ credentials or access to a signing host.
 
 The server is in the cloud; the MacBook and Pixel are local. Download verified
 build artifacts to the MacBook for approved USB installation/testing on the
-Pixel. The phone connects outbound to a separately deployed HTTPS relay; no
-cloud-to-phone localhost connection or public listener on the MacBook is needed.
+Pixel. MCP and device actions run on the phone. The cloud server is modest;
+measure its capacity rather than assume it can compile the full OS. It does
+not need the full-OS runner specification for ordinary component development.
