@@ -1,38 +1,38 @@
-# On-device MCP target
+# Deferred on-device MCP research
 
-The **Pixel runs the MCP server and Android action executor**. This project
-requires no cloud MCP host, remote device relay, or always-on MacBook gateway.
-The cloud dev server is for source/build work. The local MacBook transfers
-artifacts and supports approved USB installation/testing on the local dev Pixel.
+**MCP is deferred and is not a prerequisite for the current Home app.** Current
+work is a native Android interface centered on opening official ChatGPT, with
+Phone, Messages, Settings, and All apps. Calls, messages, notifications and
+system settings remain Android's responsibility. An optional Quick Settings
+tile opens controls; it is not an overlay or device-control daemon.
 
-The existing Python MCP/relay implementation and Android relay-polling screen
-are an earlier experiment, retained as test/reference code. They do not implement
-this target and should not be deployed as the product. No service has been
-deployed. The APK built in the initial phase is not an on-device MCP server.
+The current APK contains no MCP server, relay client, or remote command queue.
+It needs no Plugin, developer-mode entitlement, tunnel, token, or project
+server. The earlier Android polling UI is removed from this app. The Python
+bridge is an [archived experiment](../bridge/README.md), retained for tests and
+design history.
 
-## Next proof
+## Constraints if the user reopens this work
 
-1. Build a minimal authenticated MCP endpoint inside the Android app/service,
-   with a harmless read-only test tool. Keep its lifecycle visible and initially
-   require the app to be open. A loopback listener alone is not authorization:
-   other apps may be able to reach it.
-2. Verify its protocol from a local development client. With approval, use the
-   MacBook and USB-connected dev Pixel. This proves the endpoint, not integration
-   with the official ChatGPT app.
-3. Establish a **documented connection from official ChatGPT Android to the
-   phone-hosted endpoint**. An actual typed request must return a uniquely
-   correlated result without an off-device bridge. This capability has not been
-   established; mobile Plugin support alone is insufficient evidence.
-4. Once that connection works, add the existing narrow app/alarm actions with
-   local approval, validation, replay protection and honest handoff results.
-   Test mobile Voice separately. Then integrate the service into the replacement
-   OS without weakening verified boot, SELinux or encryption.
+The user requires MCP and device execution **on the Pixel**, without a project
+cloud runtime, remote device relay, or always-on MacBook gateway. The cloud dev
+server is for source/build work; the MacBook supports local development and
+approved USB testing. Preserve those boundaries unless the user changes them.
 
-Do not invent a ChatGPT localhost setting, proprietary intent, internal API or
-Android permission that grants this connection. If the official client cannot
-support it, report that limitation before changing the architecture. Do not
-silently substitute a cloud relay or separately billed chatbot API.
+A documented connection from official ChatGPT Android to phone-local MCP has
+not been established. Mobile Plugin support does not prove local MCP access.
+Reviewed OpenAI documentation describes local MCP apps as desktop capabilities;
+documented tunnel release platforms do not establish Android runtime support.
+See the [historical assessment](chatgpt-feasibility.md).
 
-The modest cloud server can still do component development. Measure its CPU,
-RAM and storage before planning a complete OS build; the larger runner profile
-is specific to OS compilation and is not a requirement for this phone service.
+If research resumes, the first integration proof would be an actual typed
+request from the official Android app invoking a harmless authenticated tool on
+the Pixel and returning a uniquely correlated result over a documented
+connection. A Mac/USB client proves only the server; Voice needs a separate
+test. These are future research conditions, not current installation steps or
+Home-app release gates.
+
+Do not invent a ChatGPT localhost setting, proprietary intent, internal API,
+or Android permission to obtain that connection. Do not substitute a project
+cloud relay or separately billed chatbot API. The official app's own online
+service remains separate from our Android UI.

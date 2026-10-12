@@ -1,80 +1,63 @@
-# Initial bridge threat model
+# Home app security boundaries
 
-This document records the earlier server-relay experiment. The chosen product
-hosts MCP and device actions on the Pixel; no project cloud relay is part of
-that target. Retain the validation/confirmation/replay lessons, but reassess
-local caller authentication and Android service lifecycle for the
-[on-device implementation](on-device-mcp.md). The remote deployment checklist
-below is historical reference, not the current plan.
+Current scope is native Android Home and controls around unmodified official
+ChatGPT. **MCP and device-tool integration are deferred.** The app has no
+Internet, SMS or call permissions, remote queue, relay setup/polling UI or
+device-control daemon. Its optional Quick Settings tile is a system-bound
+`TileService`, not an overlay.
 
-## Scope and trust
+## Current boundaries
 
-The official ChatGPT app and cloud account remain outside this project's trust
-domain. No service here reads ChatGPT conversations, memory, authentication
-tokens, subscription state, or microphone streams. The model can propose one
-of the documented narrow tools. Its arguments are untrusted, including arguments
-derived from messages, websites, documents, or tool output.
+Android owns calls, messages, notifications, locking, permissions and settings.
+The launcher opens Phone with `ACTION_DIAL`, launches default Messages and
+system Settings, and offers All apps and the official ChatGPT Play listing.
+A launch is a user-initiated handoff; it does not complete actions inside the
+destination app.
 
-For the prototype there is one owner and one device per relay instance. The
-operator credential may enqueue requests and read their status; the distinct
-device credential may receive requests and report a bounded result. Neither
-credential is a ChatGPT token. Multi-user account binding, OAuth, automated
-pairing, secure credential rotation UX, and production hosting remain gates.
+Official ChatGPT/account data are outside this project's domain. The launcher
+does not receive conversations, memory, subscription details, credentials or
+microphone audio. It uses standard package launching, not private APIs,
+modified APKs, accessibility scraping or embedded ChatGPT. The official app's
+online service and permissions remain its own.
 
-The authenticated relay is trusted: compromise can fabricate requests and
-status, so the device independently validates allowed operations and requires
-visible confirmation. TLS protects transport, not a compromised relay. Device
-approval displays the actual parsed action. No free-text command is evaluated.
+| Risk | Control | Device check |
+| --- | --- | --- |
+| Home traps user when ChatGPT is absent/offline | Reachable native controls, Settings and All apps; recovery independent of remote tools. | Home/Back/Recents, offline/missing app, restore previous Home. |
+| Shortcut calls or sends unintentionally | Dialer opens with `ACTION_DIAL`; Messages opens its app; no call/SMS permissions. | Opening either UI has no communication side effect. |
+| Missing/blocked destination | Standard Android resolution and visible fallback. | Missing/default/disabled handlers. |
+| Launcher impersonates/replaces system UI | Android owns Settings, notifications, calls and lock screen. No overlay/accessibility service. | Normal navigation, notification shade and call presentation. |
+| Tile bypasses lock screen | System-bound, user-initiated interaction obeying Android launch/lock rules. | Locked/unlocked use and removal. |
+| Credentials/content leak | No ChatGPT data interface or network permission; official app owns login. | Inspect manifest/code and sanitize test evidence. |
+| All apps implies completed work | Launch Android-resolved activities; no success claims about destination actions. | Labels/icons/handlers and failures. App labels are display data, not instructions. |
+| Debug APK mistaken for production OS | Record source/build/hash and debug signing. | UI build does not prove signing, patch coverage or OTA correctness. |
 
-## Boundaries and controls
+Do not add broad permissions to bypass an unavailable app, background-launch
+restriction or unsupported ChatGPT integration. Home selection, installation
+and OS unlock/wipe/flash are distinct approvals.
 
-| Threat | Initial control | Remaining limitation |
-|---|---|---|
-| Prompt injection asks for destructive operations | Closed app identifiers, bounded clock fields, no shell/calls/SMS/files/URLs; device approval | User can still approve an unwanted allowed action |
-| Stolen operator credential | Separate device credential, bounded queue/TTL, local confirmation | Attacker can enqueue nuisance requests/read status until rotation |
-| Stolen device credential | Role separation and fixed single-device routing | Attacker can consume requests or fabricate a handoff; tokens need private storage and rotation |
-| Replayed or retried request | Transactional relay claim, idempotency key, durable device journal before side effect | Process loss may produce `unknown`; exactly-once external intent delivery cannot be guaranteed |
-| Network or app crash | Bounded lifetime, terminal uncertainty, explicit manual retry with new request | Availability is limited; no automatic re-execution of ambiguous actions |
-| UI reports false success | Only `handed_off` after intent accepted; no `completed` for Clock intents | Android provides no reliable alarm-creation acknowledgment through this mechanism |
-| Cloud tries phone localhost | Phone initiates authenticated outbound relay requests | Foreground polling is a test harness; no reliable unattended background channel yet |
-| Unexpected app handler | Fixed allowlist, Android resolver/standard launch mechanisms | The user must trust installed handlers and default-app configuration |
-| Secret leakage | No secrets in code, no request-body logging, private runtime paths; Android backups disabled | Logs, crash reports, server backups, and screenshots still need operator review |
+## Historical bridge lessons — not active runtime
 
-## State semantics
+The [archived Python experiment](../bridge/README.md) used separate operator and
+device bearers, strict schemas, bounded queues/TTL, transactional claims,
+idempotency and a device journal before intent dispatch. The old Android relay
+UI is removed from this app. No bridge was deployed.
 
-`queued` means persisted at the relay. `awaiting_confirmation` means claimed
-by the device path; network loss can still prevent the screen from appearing.
-`handed_off` means the Android call to start the relevant Activity returned
-without a dispatch error. `rejected` means the user declined. `failed` means a
-known validation/dispatch failure. `expired` means the queued request timed out
-before delivery. `unknown` means the system cannot establish whether execution
-occurred, including loss after claim. No current operation emits `completed`.
+That design treated model/tool arguments as untrusted and required visible
+device approval. Relay compromise could fabricate requests/status; separate
+bearers limited roles without establishing multi-user identity. Loopback was
+not authentication. A lost acknowledgement could leave `unknown`; `handed_off`
+did not prove alarm creation. Exactly-once Android effects were not claimed.
 
-The protocol favors avoiding duplicate actions over availability. A lost result
-is not grounds to execute again. A manual new request must show the uncertainty
-to the user first. The relay's idempotency record retention and queue capacity
-are part of this guarantee; operators must not delete live state to clear errors.
+Retain those lessons if tooling resumes. The user's requirement is on-Pixel
+MCP/execution with no project cloud runtime, requiring a separate review of
+caller identity, lifecycle, permissions, replay, consent and result semantics.
+Official ChatGPT Android connectivity remains unproven. That research does not
+block current UI work or authorize a new relay/background service.
 
-## Production gates
+## Eventual OS
 
-Before exposing an official remote MCP integration: implement and review the
-documented ChatGPT OAuth 2.1 flow or validate an explicitly supported private
-transport/authentication combination; enforce resource/audience binding and
-PKCE as applicable; deploy HTTPS with trusted certificates; provide rotation,
-revocation, rate limits, backup/retention policy, monitoring, and abuse handling.
-Do not mistake tunnel authentication for end-user authorization without evidence
-from the relevant official transport documentation.
-
-The optional loopback MCP HTTP listener has no client authentication. Other
-local processes that can reach it can exercise the adapter's operator authority.
-Use it only on a trusted development machine; prefer the stdio adapter. Loopback
-binding by itself is not authentication. A restricted private Secure MCP Tunnel
-may provide a documented lab transport boundary; its exact access constraints
-and untested status are in [the integration assessment](chatgpt-feasibility.md).
-
-Before OS inclusion: choose a narrowly scoped background delivery strategy,
-prove Android background-start/lock-screen behavior, make any required
-privileged permissions explicit, add SELinux policy only when justified, and
-test on the exact pinned OS build. Preserve encryption, verified boot, rollback
-protection, and SELinux enforcing. The launcher must retain offline access to
-Settings, Clock, system navigation, and recovery controls.
+Preserve verified boot, SELinux enforcing, encryption and rollback protection.
+Production signing, firmware matching, updates and physical recovery follow
+the OS runbook. Home-app inclusion does not justify framework privilege, broad
+SELinux exceptions or weaker locking/background-start protections. Retain
+independent Settings and recovery access.

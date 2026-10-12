@@ -25,7 +25,7 @@ public final class SafetyTests {
         reportConflictDoesNotBlockFutureWork();
         journalRejectsCorruptionAndWriteFailure();
         concurrentDuplicateIsReservedOnce();
-        System.out.println("PASS: " + assertions + " safety assertions (production Java policy, deadline, journal).");
+        System.out.println("PASS: " + assertions + " retained legacy safety assertions (policy, deadline, journal; no live bridge).");
     }
 
     private static void policyRejectsUntrustedInputs() throws Exception {

@@ -1,88 +1,71 @@
-# AI-first Pixel distribution
+# AI Home for Pixel
 
-An independent project to build a maintained AOSP-based OS for **Pixel 9a
-(`tegu`)**, centered on the official ChatGPT Android app. The recommended base
-is a small **GrapheneOS derivative**, with our own signing keys and OTA channel.
-This checkout is an initial bridge/launcher prototype and release-engineering
-foundation. **It is not a built or flashable replacement OS.**
+ChatGPT as the main phone experience, with normal Android Phone, Messages,
+Settings, calls, and notifications still available. The current deliverable is
+a **small launcher APK for the dev Pixel**, running on its existing Android OS.
+MCP and device automation are deferred. No project server runs the phone UI.
 
-**Target architecture: MCP and device actions run on the Pixel.** The cloud
-server is for builds; the local MacBook handles USB installation/testing. No
-cloud MCP server or device relay is required by the intended product. The
-existing Python relay is an earlier experiment, not the chosen architecture.
-The next step is the [on-device MCP proof](docs/on-device-mcp.md); the current
-APK does not yet host an MCP server, and official ChatGPT's connection to a
-phone-local endpoint is unproven.
+## What this version does
 
-**Current phase: build a small APK and test on the dev Pixel.** Use the modest
-cloud server for component builds and the local MacBook for USB transfer/testing.
-A full Android source build or larger server is not required for this phase;
-replacement-OS compilation belongs to a later milestone.
+- Opens the official ChatGPT app when Home is pressed, after you enable
+  **ChatGPT on Home** and select AI Home as the default home app.
+- Provides **Phone**, **Messages**, **Settings**, and **All apps** on a controls
+  screen. The AI Home app icon always opens these controls.
+- Offers an optional **Phone controls** Quick Settings tile: swipe down from
+  ChatGPT to reach the native controls.
+- Keeps Android's incoming-call UI, notifications, volume controls, lock screen,
+  emergency access, and full Settings app in charge of their normal functions.
+- Opens the official ChatGPT Play listing for installation and updates. Play
+  remains available for maintenance without becoming the home experience.
 
-Cloud verification: Android debug APK built, lint clean, 44 Python tests and
-84 Java safety assertions passed. Official ChatGPT-to-phone execution and the
-complete OS build remain unverified; see the verification record below.
+The official ChatGPT app remains unmodified. Voice and conversations stay inside
+it; this launcher cannot make ChatGPT operate the phone. The controls are reached
+through Android's shade or AI Home, rather than inserted into ChatGPT's UI.
 
-The app install/update source is [OpenAI's official Google Play listing](https://play.google.com/store/apps/details?id=com.openai.chatgpt).
-Keep the OpenAI-signed app separate from our OS images. On the proposed base,
-install sandboxed Google Play in the same Android user profile and use Play to
-install/update ChatGPT normally. Signing into the official app preserves access
-to the account's supported subscription, conversations, memory, and Voice
-features; this project does not reimplement or extract them. Actual compatibility
-with our future OS build still needs testing on the dev Pixel.
+## Try it on the dev Pixel
 
-## Start here
+1. Download `android-debug-and-lint` from the latest successful
+   [GitHub Actions run](https://github.com/42kyynfqjv-dot/Chatgptandroid/actions/workflows/components.yml)
+   and extract `app-debug.apk` on your MacBook.
+2. Install that APK on the dev Pixel and open **AI Home**. Check Phone,
+   Messages, Settings, and Open ChatGPT first.
+3. Add the **Phone controls** tile, enable **ChatGPT on Home**, and choose
+   **AI Home** as the default home app.
 
-| Deliverable | Location |
-|---|---|
-| OS comparison, recommendation, licenses, vendor dependencies | [OS foundation](docs/os-foundation.md) |
-| Current official ChatGPT capability and account/client limits | [Feasibility matrix](docs/chatgpt-feasibility.md) |
-| What actually passed here and what remains untested | [Verification record](docs/verification.md) |
-| Launcher, Clock handoff, explicit device confirmation | [Android component](android/README.md) |
-| On-device MCP target and immediate proof | [On-device MCP](docs/on-device-mcp.md) |
-| Earlier relay experiment and protocol tests | [Bridge reference](bridge/README.md) |
-| Reproducible setup and dev-server transfer | [Development guide](docs/development.md) |
-| Upstream imports, signing, OTA rollout, emergency updates | [Security-update process](docs/security-updates.md) |
-| Stages and acceptance criteria | [Roadmap](docs/roadmap.md) |
-| Review of the two proposed existing bridges | [Bridge candidates](docs/bridge-candidates.md) |
-| Security boundaries | [Threat model](docs/threat-model.md) |
+The [short device guide](docs/pixel-quickstart.md) covers USB installation,
+the checks to make, and returning to Pixel Launcher. No bootloader unlock,
+wipe, OS flashing, or cloud connection is involved in this prototype.
 
-## Initial behavior
+## Development
 
-The optional Android HOME app offers a prominent ChatGPT entry and offline
-access to the normal Android Settings and system controls. App installation and
-updates use a fixed Play link in its settings area, without a store-browsing home
-experience. The supported Play Store itself stays unmodified. In the earlier experiment, a visible test screen
-polls the relay and asks the user to approve each request. Only allowlisted app
-launches and Clock alarm requests are implemented. No shell, calls, SMS,
-accessibility automation, ChatGPT APK modification, or undocumented endpoint is
-used. The foreground harness is temporary; the final product requires OS
-integration and an on-device MCP service. The remote polling screen is not the
-intended product connection.
-
-The Python MCP SDK adapter exposes `open_app`, `set_alarm`, and
-`get_action_status`. The relay uses separate operator and device credentials,
-durable queue state, request expiry, and duplicate protection. `handed_off`
-means Android accepted an intent, **not** that Clock saved an alarm.
-
-The local stdio/loopback MCP transport is for development. Connecting the
-official ChatGPT client requires the supported authentication/transport setup
-and account tests in the feasibility matrix. Local MCP tests do not establish
-Android typed-chat or Live tool support for the owner's account. No separately
-billed API chatbot replaces the official app.
-
-## Development checks
-
-On an already configured Python 3.12/JDK 17+ host:
+The modest cloud server builds the APK. The local MacBook transfers it to the
+local dev Pixel for physical tests. An APK build packages the launcher; it does
+not compile Android. See [development setup](docs/development.md) and the
+[Android component](android/README.md).
 
 ```sh
-make test
+bash android/test-core.sh
+make apk
 ```
 
-For dependency installation and the actual APK build, follow the [development
-guide](docs/development.md). The APK, OS image, signed OTA, account integration,
-and physical-device tests have separate verification gates. CI does not flash
-devices, publish a release, generate production keys, or provision resources.
+Build and lint checks do not establish on-phone behavior. Current and historical
+results are recorded in [verification](docs/verification.md).
+
+## Later work and reference
+
+The original replacement-OS goal remains a later, separate milestone. There is
+no flashable OS image in this repository. The proposed base is a small
+GrapheneOS derivative with its own signing and update responsibility.
+
+| Reference | Purpose |
+|---|---|
+| [Architecture](docs/architecture.md) | Current UI design and official-app boundary |
+| [Roadmap](docs/roadmap.md) | UI prototype, physical tests, then possible OS work |
+| [OS foundation](docs/os-foundation.md) | Base comparison, licenses, vendor dependencies |
+| [Security updates](docs/security-updates.md) | Future OS signing, OTA, and release process |
+| [Threat model](docs/threat-model.md) | Current app boundaries and deferred automation |
+| [ChatGPT feasibility](docs/chatgpt-feasibility.md) | Dated integration research; not a UI prerequisite |
+| [Bridge reference](bridge/README.md) | Archived relay experiment and protocol tests |
 
 This project is unaffiliated with OpenAI, Google, GrapheneOS, and LineageOS.
 See [LICENSE](LICENSE) and [NOTICE](NOTICE).

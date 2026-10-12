@@ -13,20 +13,21 @@ are not required for that workflow.
 The deployment layout is a **cloud dev server**, a **local MacBook**, and a
 **local dev Pixel**. The cloud server produces artifacts; the MacBook downloads
 and verifies them, then handles an approved USB installation/test procedure on
-the Pixel. MCP and device execution belong **on the Pixel**, with no project
-cloud runtime or relay. The existing Python relay is a superseded experiment;
-do not deploy it as a prerequisite. See [on-device MCP](on-device-mcp.md).
+the Pixel. The current app provides Home routing and native controls; MCP is
+deferred. No project cloud runtime, relay, or phone-hosted tool server is needed.
+Follow the [dev Pixel guide](pixel-quickstart.md) for the current UI prototype.
 The cloud server is modest and its actual specs remain to be checked. The large
 runner profile below applies only to compiling the complete Android OS.
 
 ## Component development
 
-Use Linux x86-64, Python 3.12, JDK 17 or 21, `make`, Git, curl, unzip and ordinary
+For the APK, use Linux x86-64, a full JDK 17, `make`, Git, curl, unzip and ordinary
 package-repository access. Approximately 8 GiB RAM and 10 GiB free disk suffice
 for these small components; this is not an Android OS build estimate.
 
-From this repository root, create a private environment and install the complete
-hashed dependency lock:
+Python is only needed for the retained bridge and OS-control checks, not to
+build or run the launcher. To run those reference checks, use Python 3.12 and
+install the complete hashed dependency lock in a private environment:
 
 ```sh
 python3.12 -m venv .venv
@@ -67,7 +68,7 @@ containing private material. Read the Android build notes for the verified local
 command. Keep all tool caches in writable paths in a restricted cloud workspace.
 
 The APK is produced under `android/app/build/outputs/apk/debug/`. A debug APK
-is for the dev Pixel harness and is **not** a signed production OS app release.
+is for the dev Pixel prototype and is **not** a signed production OS app release.
 Build/lint success does not establish on-device behavior. No install command is
 run by the setup script, Makefile, or CI.
 
@@ -126,7 +127,8 @@ from the compilation host.
 protocol/release-control tests, compiles the Android app, runs lint, and retains
 debug APK/lint artifacts. Actions are commit-pinned, workflow permissions are
 read-only, and no secrets or phone access are required. The workflow has been
-prepared locally; an actual GitHub run is a separate verification event.
+run successfully on GitHub for an earlier revision. Check the run associated
+with the commit being installed, not merely the most recent green result.
 
 Upstream import/patch checks and release-evidence consistency can be automated.
 First key trust, licensing decisions, interpreting security bulletin coverage,

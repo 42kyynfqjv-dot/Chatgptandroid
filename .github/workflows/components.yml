@@ -47,7 +47,7 @@ jobs:
           echo "GRADLE_USER_HOME=$RUNNER_TEMP/gradle" >> "$GITHUB_ENV"
       - name: Install pinned Android build tools
         run: bash scripts/setup-android-sdk.sh
-      - name: Test policy and journal
+      - name: Test Home routing and retained core checks
         run: bash android/test-core.sh
       - name: Build and lint APK
         working-directory: android

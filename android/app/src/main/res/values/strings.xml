@@ -1,3 +1,6 @@
 <resources>
     <string name="app_name">AI Home</string>
+    <string name="controls_tile">Phone controls</string>
+    <string name="controls_tile_description">Open AI Home phone controls</string>
+    <string name="chatgpt_on_home">ChatGPT on Home</string>
 </resources>

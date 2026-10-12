@@ -1,10 +1,42 @@
 # Verification record
 
+## Current UI prototype: 0.2.0
+
+Verified in the cloud workspace on **2026-10-12 (UTC)**:
+
+- `assembleDebug lintDebug` passed: **0 lint errors and 0 warnings**.
+- **16 Home-routing assertions** passed, including app-icon/tile recovery,
+  opt-in, repeat Home delivery, recreation, and locked-device behavior.
+- **84 retained legacy safety assertions** passed. These helpers have no
+  current UI runtime callers; they do not establish an active bridge.
+- APK inspection reports package `dev.aifirst.launcher`, version code **2**,
+  version **0.2.0**, and **no requested app permissions**. Android's system-only
+  tile-binding permission protects the service.
+- APK v2 signature verification passed with the local development key.
+
+The locally built `artifacts/AIHome-debug.apk` is **45,752 bytes**; SHA-256:
+`cef39c0c8c14e5655f0a73756747be2d89131149239bc9e110654bd1585816c8`.
+GitHub builds use their own debug signing identity, so their APK hash can differ.
+Local APKs and build reports are ignored by Git; CI retains downloadable APK and
+lint artifacts with each run.
+
+The current app has native controls, opt-in Home-to-ChatGPT routing, and a Quick
+Settings tile. The old relay UI/client is removed. There is no phone install,
+physical Home/tile/call test, MCP connection, or full OS build behind these
+results. Run the [dev Pixel checks](pixel-quickstart.md) next.
+
+The repository is published on GitHub. The prior commit `cd547c0` passed
+[GitHub CI](https://github.com/42kyynfqjv-dot/Chatgptandroid/actions/runs/38185348762).
+For this revision, check its own run on the
+[workflow page](https://github.com/42kyynfqjv-dot/Chatgptandroid/actions/workflows/components.yml).
+
+## Historical build snapshot
+
 Initial-build snapshot date: **2026-10-11**, before GitHub publication. Initial repository state: an empty Git checkout;
 the earlier local Android/Python scaffold was not present. All implementation
 here was created and reviewed in this cloud workspace.
 
-## Demonstrated in this session
+## Initial 0.1.0 component evidence
 
 | Component | Evidence | Practical limit |
 |---|---|---|
@@ -22,8 +54,8 @@ device API. It does **not** launch an app or create an alarm. The Android code
 only records `handed_off` after a successful `startActivity` call, and that path
 still needs physical validation. Neither side emits `completed` for an intent.
 
-The final `./gradlew --no-daemon assembleDebug lintDebug` run succeeded with
-43 tasks (13 executed, 30 up-to-date). The verified debug APK is copied to
+The initial 0.1.0 `./gradlew --no-daemon assembleDebug lintDebug` run succeeded with
+43 tasks (13 executed, 30 up-to-date). That historical debug APK was copied to
 `artifacts/AIHome-debug.apk` (118,550 bytes); SHA-256:
 `abafefb3e72770c913debe585440b9306e2b735420a42426f22b1f87407caf6a`.
 Its APK v2 signature verifies. The signing identity is a local Android debug
@@ -58,7 +90,7 @@ checked against the public release metadata. Android command-line tools 12.0
 SHA-256 `2d2d50857e4eb553af5a6dc3ad507a17adf43d115264b1afc116f95c92e5e258`.
 Installed platform 35 reports revision 2 / extension level 13.
 
-## Not demonstrated or performed
+## Remaining physical and release checks
 
 - Official ChatGPT Plugin creation, tunnel connection, account entitlement,
   Android typed tool calls, and Android Live/Voice tool calls. Each is a separate
@@ -68,14 +100,13 @@ Installed platform 35 reports revision 2 / extension level 13.
 - Full OS source sync, vendor factory-archive verification, complete kernel
   provenance, OS build, production signing, OTA generation, locked verified-boot
   installation, rollback/recovery or update testing.
-- GitHub-hosted CI execution, public repository push, hosted relay, public
-  Plugin publication, scheduled maintenance, or paid infrastructure provisioning.
+- Hosted relay, public Plugin publication, scheduled maintenance, or paid
+  infrastructure provisioning. MCP is deferred and is not a UI prerequisite.
 
 The code and runner configuration are ready for further development. Production
 release remains blocked by the unset reviewed inputs and hardware evidence;
-there is no flashable OS image in this checkout. The owner has a dev Pixel and
-has offered a dev server for compilation, but has not authorized physical
-modifications or supplied a server connection in this session.
+there is no flashable OS image in this checkout. The dev Pixel is local to the owner and has not been modified by this cloud
+workspace. The current UI test procedure is in [the quickstart](pixel-quickstart.md).
 
 The detailed capability matrix, source URLs and documented/conditional/unproven
 distinctions are in [chatgpt-feasibility.md](chatgpt-feasibility.md). The OS

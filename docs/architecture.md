@@ -1,68 +1,65 @@
 # Architecture decisions
 
-## ADR-001: A small GrapheneOS derivative
+## Current scope: ChatGPT Home and native controls
 
-Recommend the maintained Pixel hardware/security integration of GrapheneOS as
-the upstream, subject to the evidence in [the foundation comparison](os-foundation.md).
-Our distribution owns its names, signatures, updater endpoints, build records,
-and release responsibility. Upstream signed OTA packages cannot update our
-modified, differently signed OS. Each upstream release is imported, rebuilt,
-validated, and signed by us. Initial changes should be ordinary apps and small
-product configuration patches; no broad framework fork is justified yet.
-
-## ADR-002: Preserve the official app boundary
-
-Use the OpenAI-signed app from Google Play. The launcher invokes its ordinary
-launcher Activity through Android package resolution and exposes the fixed Play
-listing for installation/updates under settings. Keep the full standard Android
-Settings app accessible, with Play serving app maintenance rather than a
-store-browsing home experience. The Play Store itself remains unmodified and can
-show its ordinary UI when opened. Play updates the app independently of OS OTA.
-The UI is not embedded, intercepted, scraped, or cloned. No API subscription is
-assumed to be interchangeable with the user's ChatGPT subscription.
-
-## ADR-003: MCP and device execution on the Pixel
+AI Home is an ordinary Android launcher on the dev Pixel's existing OS. When
+enabled as the default Home app, it opens the official ChatGPT app on a fresh
+Home request. Returning from Phone, Messages, or Settings does not trigger an
+automatic redirect. A missing or unlaunchable ChatGPT leaves controls visible.
 
 ```mermaid
-flowchart LR
-    subgraph Pixel
-        A[Official ChatGPT Android] -. Documented local connection: unproven .-> B[On-device MCP service: planned]
-        B --> C[Local validation and approval]
-        C --> D[Allowlisted Android action]
-    end
+flowchart TD
+    H[Home gesture] --> L[AI Home]
+    L --> C[Official ChatGPT app]
+    Q[Quick Settings: Phone controls] --> P[Native controls screen]
+    I[AI Home app icon] --> P
+    P --> D[Phone / Messages / Settings]
+    P --> R[All apps / choose another launcher]
 ```
 
-There is no project-operated cloud runtime or remote relay in the target.
-The existing Python adapter/relay and Android polling screen are an earlier
-experiment, not this implementation. No service has been deployed.
+The user adds the optional Quick Settings tile through Android's normal UI.
+Android binds its `TileService` when needed; it is not an always-running
+background daemon. There is no overlay, notification listener, accessibility
+service, device-admin mode, or remote relay in this UI path.
 
-The first proof is a harmless read-only tool on a phone-hosted MCP endpoint,
-then a documented official ChatGPT Android connection to it. The latter is
-**not established** by current tests or mobile Plugin documentation. A Mac/USB
-client test does not prove it. See [the on-device plan](on-device-mcp.md).
+Android continues to handle incoming calls, messages and their notifications,
+volume, quick settings, lockscreen, and emergency calling. Phone opens the
+dialer; Messages opens the messaging app. AI Home neither places calls nor
+reads or sends messages itself. Those actions happen in the native apps.
 
-Android execution and background-activity restrictions still apply. Start with
-a visible local service and retain explicit confirmation. Do not work around an
-unsupported official-client connection with private APIs or a cloud relay.
+## Preserve the official app and recovery paths
 
-## ADR-004: Conservative results and at-most-once attempts
+Use the OpenAI-signed app from Google Play. Resolve its ordinary launcher
+Activity through Android's package manager; do not depend on private Activity
+names, endpoints, or a Voice-start contract. Keep the full Android Settings app
+accessible, and expose the official ChatGPT Play listing for updates. Play
+remains unmodified and can show its ordinary UI when opened.
 
-An intent handoff cannot prove downstream completion. Persist the attempt before
-dispatch, keep a request journal, and report ambiguity after interruption. Never
-automatically retry an ambiguous side effect. The user must approve a new request
-if they decide to retry. The narrow schema and local confirmation remain in force
-even if a future model or client claims a request is already authorized.
+The ChatGPT UI is not embedded, intercepted, scraped, or cloned. The launcher
+does not read conversations or provide AI control of the phone. The user's
+ChatGPT subscription stays with the official app.
 
-## ADR-005: Separate compilation, physical validation, and signing
+**ChatGPT on Home** is an explicit preference. The AI Home app icon and tile
+open controls even while that preference is enabled. Android's system Settings
+also retains its normal default-home selection, allowing return to Pixel
+Launcher. No kiosk restrictions prevent exiting the prototype.
 
-The dev server compiles components and OS candidates. The owner's **dev Pixel**
-performs hardware and official-app validation after approval. An isolated signing
-process holds production keys. KVM/emulation is optional and unnecessary for the
-physical-device workflow. Public pull-request CI never receives production
-credentials or access to a signing host.
+## MCP is deferred
 
-The server is in the cloud; the MacBook and Pixel are local. Download verified
-build artifacts to the MacBook for approved USB installation/testing on the
-Pixel. MCP and device actions run on the phone. The cloud server is modest;
-measure its capacity rather than assume it can compile the full OS. It does
-not need the full-OS runner specification for ordinary component development.
+The UI prototype has no MCP setup or connection requirement. The earlier
+Python relay and protocol code remain as historical reference. If tool control
+is revisited, the user's constraint remains that MCP and device execution run
+on the Pixel, with no project-operated cloud relay. The official app's ability
+to connect to that service remains unproven; this is not a gate for the UI work.
+
+## Build environment and possible OS milestone
+
+The modest cloud dev server compiles the APK. The local MacBook transfers it to
+the local dev Pixel, which supplies physical validation. No full Android source
+build or emulator is required for this phase.
+
+A future replacement OS would use the maintained Pixel hardware integration of
+GrapheneOS as the proposed upstream, subject to the [foundation review](os-foundation.md).
+Our distribution would own its names, signatures, updater, and release
+responsibility. That requires separate source, signing, hardware, and OTA
+validation; the current APK does not provide them.
