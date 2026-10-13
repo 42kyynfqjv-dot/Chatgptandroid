@@ -1,5 +1,7 @@
 """Meaningful failure tests for source pinning and the release evidence boundary."""
 import importlib.util
+import contextlib
+import io
 import json
 import pathlib
 import tempfile
@@ -96,6 +98,12 @@ class ReleaseGateTests(unittest.TestCase):
         for path in ("../outside", "/tmp/outside", "escape/outside"):
             with self.subTest(path=path), self.assertRaises(ValueError):
                 pipeline.contained(self.root, path)
+
+    def test_generated_approval_requires_both_pin_and_review_reference(self):
+        for approval in ({}, {"inventory_sha256": "a" * 64, "review_reference": " "},
+                         {"inventory_sha256": "0" * 64, "review_reference": "synthetic review"}):
+            with self.subTest(approval=approval), self.assertRaises(ValueError):
+                pipeline.validate_lock({**self.lock, "generated_inputs": approval})
 
 
 class ManifestTests(unittest.TestCase):
@@ -271,6 +279,369 @@ class PatchTests(unittest.TestCase):
         (self.manifests / "default.xml").write_text("<manifest/>")
         with self.assertRaisesRegex(ValueError, "working tree content differs"):
             pipeline.patch_sources(self.args)
+
+
+class GeneratedInputTests(unittest.TestCase):
+    """Real Git tree + synthetic archive bytes, never production approvals."""
+    def setUp(self):
+        self.fixture = PatchTests()
+        self.fixture.setUp()
+        self.addCleanup(self.fixture.doCleanups)
+        self.root, self.args = self.fixture.root, self.fixture.args
+        pipeline.patch_sources(self.args)
+        self.artifacts = self.root / "inputs"
+        self.artifacts.mkdir()
+        factory, dependency = self.artifacts / "factory.zip", self.artifacts / "dependency.tar"
+        factory.write_bytes(b"synthetic factory archive")
+        dependency.write_bytes(b"synthetic dependency archive")
+        lock = pipeline.read_json(self.args.lock)
+        lock["vendor"] = {"build_id": "SYNTHETIC", "factory_sha256": pipeline.digest(factory), "source_url": "https://vendor.example.invalid/factory.zip"}
+        self.args.lock.write_text(json.dumps(lock))
+        self.generated = self.fixture.project / "generated"
+        self.generated.mkdir(mode=0o755)
+        self.payload = self.generated / "payload.bin"
+        self.payload.write_bytes(b"synthetic extracted bytes")
+        self.payload.chmod(0o644)
+        (self.generated / "current").symlink_to("payload.bin")
+        (self.generated / "source-value").symlink_to("../value")
+        self.plan = {
+            "generators": [{"id": "extractor", "project": "foo", "commit": pipeline.run("git", "rev-parse", "HEAD", cwd=self.fixture.project)}],
+            "artifacts": [{"id": "factory", "kind": "factory", "path": "factory.zip", "sha256": pipeline.digest(factory), "source_url": lock["vendor"]["source_url"]},
+                          {"id": "dependency", "kind": "dependency", "path": "dependency.tar", "sha256": pipeline.digest(dependency), "source_url": "https://deps.example.invalid/dependency.tar"}],
+            "roots": [{"path": "foo/generated", "generator": "extractor", "inputs": ["factory", "dependency"]}],
+        }
+        self.args.plan = self.root / "plan.json"
+        self.args.output = self.root / "candidate.json"
+        self.args.artifacts = self.artifacts
+        self.args.generated_inventory = self.args.output
+        self.save_plan()
+
+    def save_plan(self):
+        self.args.plan.write_text(json.dumps(self.plan))
+
+    def capture(self):
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            pipeline.capture_generated(self.args)
+        return json.loads(output.getvalue())
+
+    def approve(self):
+        # Deliberately separate test-only human review from candidate capture.
+        lock = pipeline.read_json(self.args.lock)
+        lock["generated_inputs"] = {"inventory_sha256": pipeline.digest(self.args.output), "review_reference": "synthetic independent review"}
+        self.args.lock.write_text(json.dumps(lock))
+
+    def captured_and_approved(self):
+        self.capture()
+        self.approve()
+
+    def test_capture_never_approves_and_pinned_inventory_admits_exact_generated_files(self):
+        original = self.args.lock.read_bytes()
+        result = self.capture()
+        self.assertEqual(result["status"], "candidate-needs-independent-review")
+        self.assertEqual(self.args.lock.read_bytes(), original)
+        with self.assertRaisesRegex(ValueError, "not independently pinned"):
+            pipeline.verify_tree(self.args)
+        self.approve()
+        pipeline.verify_tree(self.args)
+
+    def test_byte_mode_type_and_missing_file_mutations_fail(self):
+        self.captured_and_approved()
+        original = self.payload.read_bytes()
+        for mutation in ("bytes", "mode", "symlink", "missing"):
+            with self.subTest(mutation=mutation):
+                if mutation == "bytes": self.payload.write_bytes(b"changed")
+                if mutation == "mode": self.payload.chmod(0o755)
+                if mutation in {"symlink", "missing"}: self.payload.unlink()
+                if mutation == "symlink": self.payload.symlink_to("../value")
+                with self.assertRaises((ValueError, OSError)):
+                    pipeline.verify_tree(self.args)
+                if self.payload.is_symlink(): self.payload.unlink()
+                self.payload.write_bytes(original)
+                self.payload.chmod(0o644)
+
+    def test_unrecorded_ignored_file_and_empty_directory_fail(self):
+        self.captured_and_approved()
+        (self.fixture.project / ".git/info/exclude").write_text("generated/*\n")
+        extra = self.generated / "unreviewed"
+        extra.write_text("hidden by Git")
+        with self.assertRaisesRegex(ValueError, "unexpected file"):
+            pipeline.verify_tree(self.args)
+        extra.unlink()
+        extra.mkdir()
+        with self.assertRaisesRegex(ValueError, "unexpected directory"):
+            pipeline.verify_tree(self.args)
+
+    def test_inventory_bytes_and_source_binding_cannot_be_reused(self):
+        self.captured_and_approved()
+        original = self.args.output.read_bytes()
+        self.args.output.write_bytes(original + b" ")
+        with self.assertRaisesRegex(ValueError, "not independently pinned"):
+            pipeline.verify_tree(self.args)
+        self.args.output.write_bytes(original)
+        lock = pipeline.read_json(self.args.lock)
+        lock["vendor"]["build_id"] = "DIFFERENT"
+        self.args.lock.write_text(json.dumps(lock))
+        with self.assertRaisesRegex(ValueError, "different source inputs"):
+            pipeline.verify_tree(self.args)
+
+    def test_mode_and_generator_commit_are_bound(self):
+        self.plan["generators"][0]["commit"] = "b" * 40
+        self.save_plan()
+        with self.assertRaisesRegex(ValueError, "generator is not pinned"):
+            self.capture()
+        self.plan["generators"][0]["commit"] = pipeline.run("git", "rev-parse", "HEAD", cwd=self.fixture.project)
+        self.save_plan()
+        self.captured_and_approved()
+        inventory = pipeline.read_json(self.args.output)
+        inventory["binding"]["mode"] = "emergency"
+        self.args.output.write_text(json.dumps(inventory))
+        self.approve()
+        with self.assertRaisesRegex(ValueError, "different source inputs"):
+            pipeline.verify_tree(self.args)
+
+    def test_input_archives_are_rehashed_and_factory_must_match_lock(self):
+        self.captured_and_approved()
+        (self.artifacts / "dependency.tar").write_bytes(b"tampered dependency")
+        with self.assertRaisesRegex(ValueError, "input artifact hash mismatch"):
+            pipeline.verify_tree(self.args)
+        self.plan["artifacts"][0]["sha256"] = pipeline.digest(self.artifacts / "dependency.tar")
+        self.plan["artifacts"][0]["path"] = "dependency.tar"
+        self.save_plan()
+        self.args.output = self.root / "second.json"
+        with self.assertRaisesRegex(ValueError, "factory input differs"):
+            self.capture()
+
+    def test_artifact_inside_checkout_is_not_external_input(self):
+        self.args.artifacts = self.root
+        for artifact in self.plan["artifacts"]:
+            artifact["path"] = "inputs/" + artifact["path"]
+        self.plan["artifacts"][1]["path"] = "source/foo/generated/payload.bin"
+        self.plan["artifacts"][1]["sha256"] = pipeline.digest(self.payload)
+        self.save_plan()
+        with self.assertRaisesRegex(ValueError, "input artifact is inside source"):
+            self.capture()
+
+    def test_tracked_root_and_parent_symlink_alias_rejected(self):
+        self.plan["roots"][0]["path"] = "foo/value"
+        self.save_plan()
+        with self.assertRaisesRegex(ValueError, "overlaps tracked source"):
+            self.capture()
+        self.plan["roots"][0]["path"] = "foo/generated"
+        self.save_plan()
+        project = self.fixture.project
+        actual = project.with_name("actual")
+        project.rename(actual)
+        project.symlink_to(actual.name)
+        with self.assertRaisesRegex(ValueError, "symlinked inventory parent"):
+            self.capture()
+
+    def test_nested_git_outputs_and_noncanonical_paths_rejected(self):
+        for path in ("foo/generated/.git", "out", "dist", "foo//generated", "foo/../generated", "./foo/generated", "foo/generated/", "foo\\generated"):
+            with self.subTest(path=path):
+                self.plan["roots"][0]["path"] = path
+                self.save_plan()
+                with self.assertRaises(ValueError): self.capture()
+        self.plan["roots"][0]["path"] = "foo/generated"
+        self.save_plan()
+        (self.generated / ".git").mkdir()
+        with self.assertRaisesRegex(ValueError, "metadata or build output"):
+            self.capture()
+
+    def test_dependency_dist_subdirectory_is_explicitly_inventoried(self):
+        # Package distributions are legitimate immutable inputs, distinct from
+        # checkout-root out/ and dist/ produced by the OS build itself.
+        package = self.generated / "dist"
+        package.mkdir(mode=0o755)
+        (package / "index.js").write_text("synthetic dependency distribution")
+        (package / "index.js").chmod(0o644)
+        self.captured_and_approved()
+        pipeline.verify_tree(self.args)
+        (package / "index.js").write_text("unreviewed dependency change")
+        with self.assertRaisesRegex(ValueError, "generated content or mode differs"):
+            pipeline.verify_tree(self.args)
+
+    def test_reviewed_inventory_cannot_be_silently_omitted(self):
+        self.captured_and_approved()
+        self.args.generated_inventory = self.args.artifacts = None
+        with self.assertRaisesRegex(ValueError, "reviewed generated inventory must be supplied"):
+            pipeline.verify_tree(self.args)
+
+    def test_symlink_escape_metadata_checkout_root_and_changed_target_rejected(self):
+        link = self.generated / "current"
+        for target in ("../../../outside", "../.git/config", "../../", "../"):
+            with self.subTest(target=target):
+                link.unlink()
+                link.symlink_to(target)
+                with self.assertRaises((ValueError, OSError)):
+                    self.capture()
+        link.unlink()
+        link.symlink_to("payload.bin")
+        self.captured_and_approved()
+        link.unlink()
+        link.symlink_to("../value")
+        with self.assertRaisesRegex(ValueError, "generated content or mode differs"):
+            pipeline.verify_tree(self.args)
+
+    def test_duplicate_case_alias_missing_directory_and_override_entries_fail(self):
+        self.captured_and_approved()
+        original = pipeline.read_json(self.args.output)
+        for mutation in ("duplicate", "case", "directory", "override"):
+            with self.subTest(mutation=mutation):
+                inventory = json.loads(json.dumps(original))
+                entry = next(e for e in inventory["entries"] if e["path"].endswith("payload.bin"))
+                if mutation in {"duplicate", "case"}:
+                    extra = dict(entry)
+                    if mutation == "case": extra["path"] = extra["path"].replace("payload.bin", "PAYLOAD.bin")
+                    inventory["entries"].append(extra)
+                if mutation == "directory": inventory["entries"] = [e for e in inventory["entries"] if e["kind"] != "directory"]
+                if mutation == "override": entry["path"] = "foo/value"
+                self.args.output.write_text(json.dumps(inventory))
+                self.approve()
+                with self.assertRaises(ValueError): pipeline.verify_tree(self.args)
+
+    def test_capture_preserves_tracked_mutation_rejection_and_never_overwrites_output(self):
+        (self.fixture.project / "value").write_text("not the pinned patch")
+        with self.assertRaisesRegex(ValueError, "working tree content differs"):
+            self.capture()
+        (self.fixture.project / "value").write_text("after\n")
+        self.capture()
+        with self.assertRaisesRegex(ValueError, "new file outside source"):
+            self.capture()
+        self.args.output = self.generated / "candidate.json"
+        with self.assertRaisesRegex(ValueError, "new file outside source"):
+            self.capture()
+
+    def test_hardlinks_and_duplicate_json_keys_fail_closed(self):
+        (self.generated / "alias").hardlink_to(self.payload)
+        with self.assertRaisesRegex(ValueError, "hardlinked"):
+            self.capture()
+        self.args.plan.write_text('{"generators":[],"generators":[]}')
+        with self.assertRaisesRegex(ValueError, "duplicate JSON key"):
+            self.capture()
+
+    def test_nested_bare_repository_is_not_a_generated_dependency(self):
+        pipeline.run("git", "init", "--bare", "-q", str(self.generated / "nested.git"))
+        with self.assertRaisesRegex(ValueError, "nested bare Git"):
+            self.capture()
+
+    def test_directory_enumeration_failure_does_not_silently_capture_empty_tree(self):
+        actual_walk = pipeline.os.walk
+        def broken_walk(root, *args, **kwargs):
+            if pathlib.Path(root) == self.generated:
+                kwargs["onerror"](PermissionError("synthetic scandir failure"))
+            return actual_walk(root, *args, **kwargs)
+        with patch.object(pipeline.os, "walk", side_effect=broken_walk):
+            with self.assertRaises(PermissionError): self.capture()
+
+    def test_directory_enumeration_failure_also_blocks_verification(self):
+        self.captured_and_approved()
+        actual_walk = pipeline.os.walk
+        def broken_walk(root, *args, **kwargs):
+            kwargs["onerror"](PermissionError("synthetic verification scandir failure"))
+            return actual_walk(root, *args, **kwargs)
+        with patch.object(pipeline.os, "walk", side_effect=broken_walk):
+            with self.assertRaises(PermissionError): pipeline.verify_tree(self.args)
+
+
+class DevelopmentProfileTests(unittest.TestCase):
+    def setUp(self):
+        self.fixture = ReleaseGateTests()
+        self.fixture.setUp()
+        self.addCleanup(self.fixture.doCleanups)
+        self.root = self.fixture.root
+        self.lock = {k: v for k, v in self.fixture.lock.items()
+                     if k not in {"kernel", "keys", "update_url", "platform_security_patch"}}
+        self.lock["status"] = "development-pinned"
+        self.lock_path = self.root / "development-lock.json"
+        self.lock_path.write_text(json.dumps(self.lock))
+
+    def test_development_source_does_not_need_release_keys_endpoint_or_kernel_claim(self):
+        pipeline.validate_development_lock(self.lock)
+        self.assertNotIn("kernel", self.lock)
+        self.assertNotIn("keys", self.lock)
+        with self.assertRaisesRegex(ValueError, "not cryptographically pinned"):
+            pipeline.validate_lock(self.lock)
+        with self.assertRaisesRegex(ValueError, "not cryptographically pinned"):
+            pipeline.validate_release(self.lock, {}, self.root, self.lock_path)
+
+    def test_source_profiles_require_explicit_matching_status(self):
+        with self.assertRaisesRegex(ValueError, "not explicitly pinned"):
+            pipeline.validate_development_lock(self.fixture.lock)
+        upgraded = {**self.lock, "status": "verified"}
+        with self.assertRaises((ValueError, KeyError)):
+            pipeline.validate_lock(upgraded)
+        with self.assertRaisesRegex(ValueError, "not cryptographically pinned"):
+            pipeline.validate_profile(self.lock, SimpleNamespace())
+
+    def test_development_rejects_missing_review_and_mutable_or_incomplete_source_identity(self):
+        mutations = [{"tag": "main"}, {"manifest_commit": "latest"}, {"allowed_signers_sha256": "0" * 64},
+                     {"patch_series_sha256": None}, {"review_reference": " "}, {"status": "blocked-unverified"},
+                     {"foundation": "other"}, {"device": "other"},
+                     {"vendor": {**self.lock["vendor"], "factory_sha256": None}},
+                     {"vendor": {**self.lock["vendor"], "source_url": "http://vendor.invalid/factory.zip"}}]
+        for mutation in mutations:
+            with self.subTest(mutation=mutation), self.assertRaises(ValueError):
+                pipeline.validate_development_lock({**self.lock, **mutation})
+
+    def test_cli_development_is_source_only_and_cannot_authorize_release(self):
+        argv = [str(SCRIPT), "--lock", str(self.lock_path)]
+        for flags, expected in [(["--development", "validate-lock"], 0), (["validate-lock"], 1),
+                                (["--development", "release-gate", str(self.root / "absent.json")], 1)]:
+            with self.subTest(flags=flags), patch("sys.argv", argv + flags), contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()) as error:
+                self.assertEqual(pipeline.main(), expected)
+                if "release-gate" in flags:
+                    self.assertIn("development profile cannot authorize a release", error.getvalue())
+
+    def test_development_import_still_rejects_bad_signed_tag_before_sync(self):
+        signers = self.root / "synthetic-signers"
+        signers.write_text("synthetic test public signer; not a real trust root")
+        self.lock["allowed_signers_sha256"] = pipeline.digest(signers)
+        self.lock_path.write_text(json.dumps(self.lock))
+        args = SimpleNamespace(lock=self.lock_path, development=True, signers=signers, destination=self.root / "checkout")
+        def commands(*command, **kwargs):
+            if "verify-tag" in command:
+                raise pipeline.subprocess.CalledProcessError(1, command)
+            return ""
+        with patch.object(pipeline, "run", side_effect=commands) as run:
+            with self.assertRaises(pipeline.subprocess.CalledProcessError):
+                pipeline.import_sources(args)
+        self.assertTrue(any("verify-tag" in call.args for call in run.call_args_list))
+        self.assertFalse(any(call.args[:2] == ("repo", "sync") for call in run.call_args_list))
+
+    def test_development_generated_inputs_still_require_review_and_exact_bytes(self):
+        generated = GeneratedInputTests()
+        generated.setUp()
+        self.addCleanup(generated.doCleanups)
+        # Keep the fixture's real synthetic Git commits and hashed archive bytes.
+        lock = {**self.lock, **pipeline.read_json(generated.args.lock)}
+        generated.args.lock.write_text(json.dumps(lock))
+        generated.args.development = True
+        generated.capture()
+        with self.assertRaisesRegex(ValueError, "not independently pinned"):
+            pipeline.verify_tree(generated.args)
+        generated.approve()
+        pipeline.verify_tree(generated.args)
+        generated.payload.write_bytes(b"unreviewed development mutation")
+        with self.assertRaisesRegex(ValueError, "generated content or mode differs"):
+            pipeline.verify_tree(generated.args)
+
+    def test_development_capture_rejects_unpinned_generator_and_tracked_mutation(self):
+        generated = GeneratedInputTests()
+        generated.setUp()
+        self.addCleanup(generated.doCleanups)
+        lock = {**self.lock, **pipeline.read_json(generated.args.lock)}
+        generated.args.lock.write_text(json.dumps(lock))
+        generated.args.development = True
+        original = generated.plan["generators"][0]["commit"]
+        generated.plan["generators"][0]["commit"] = "f" * 40
+        generated.save_plan()
+        with self.assertRaisesRegex(ValueError, "generator is not pinned"):
+            generated.capture()
+        generated.plan["generators"][0]["commit"] = original
+        generated.save_plan()
+        (generated.fixture.project / "value").write_text("unreviewed development source")
+        with self.assertRaisesRegex(ValueError, "working tree content differs"):
+            generated.capture()
 
 
 if __name__ == "__main__":

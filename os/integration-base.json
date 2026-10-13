@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "upstream_tag": "2026100600",
+  "manifest_commit": "26f7e8a760d4343a501faf09773ec4cc61a6b56b",
+  "manifest_sha256": "32d30e70ee59d373a17fe8090bdded898afa80651f27c331caca4578b3008888",
+  "projects": [
+    {
+      "project": "frameworks/base",
+      "repository": "GrapheneOS/platform_frameworks_base",
+      "commit": "84183aff99be5e156dc0446a6fa2d4a7150f4bc3",
+      "base_files": [
+        {
+          "path": "core/res/res/values/config.xml",
+          "sha256": "d9121e6c004d52b9f4e21d2e051f12efd7ab46f37b8c288e0314392a6d16b53f"
+        },
+        {
+          "path": "services/core/java/com/android/server/wm/DisplayPolicy.java",
+          "sha256": "12ba7ecf65f3a20007294c3cb58d8a35f548f0c213321448ffed9c2e3d2f53b3"
+        }
+      ],
+      "hooks": [
+        "os/product/upstream-patches/framework-default-home.patch",
+        "os/framework/patches/0001-aifirst-shape-observer.patch"
+      ],
+      "source_trees": [
+        {
+          "source": "os/framework/src",
+          "destination": "services/core/java"
+        },
+        {
+          "source": "os/gestures/src",
+          "destination": "services/core/java"
+        }
+      ],
+      "output": "os/patches/0001-framework-home-and-gestures.patch",
+      "kind": "customization"
+    },
+    {
+      "project": "packages/modules/Permission",
+      "repository": "GrapheneOS/platform_packages_modules_Permission",
+      "commit": "4d6005dbabf3f2bf96e5215c5c2801809b051bf3",
+      "base_files": [
+        {
+          "path": "PermissionController/res/xml/roles.xml",
+          "sha256": "e40eed5dffb0a2e239b5110a9cbe7666d7fdb985622d6592b90c9d6472a7fdc3"
+        }
+      ],
+      "hooks": [
+        "os/product/upstream-patches/permission-default-home.patch"
+      ],
+      "source_trees": [],
+      "output": "os/patches/0002-default-home-role.patch",
+      "kind": "customization"
+    },
+    {
+      "project": "vendor/adevtool",
+      "repository": "GrapheneOS/adevtool",
+      "commit": "17df3b79a73e67ad68387b35c7d41c85e1d8103c",
+      "base_files": [
+        {
+          "path": "config/mk/google_devices/device/tegu/device.mk",
+          "sha256": "6bf25575686b4e27cccaf1bbc90ffc46f5cb8966bf5bee20df1f4f50e3febaba"
+        }
+      ],
+      "hooks": [
+        "os/product/upstream-patches/adevtool-product.patch"
+      ],
+      "source_trees": [
+        {
+          "source": "@product",
+          "destination": "config/mk/aifirst"
+        }
+      ],
+      "output": "os/patches/0003-tegu-ai-home-product.patch",
+      "kind": "customization"
+    }
+  ],
+  "verification_scope": "Recreates patches against hash-pinned changed upstream files; complete project application, Soong compilation, and phone boot are separate checks."
+}

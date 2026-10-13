@@ -1,0 +1,11 @@
+diff --git a/PermissionController/res/xml/roles.xml b/PermissionController/res/xml/roles.xml
+--- a/PermissionController/res/xml/roles.xml
++++ b/PermissionController/res/xml/roles.xml
+@@ -454,6 +454,7 @@
+     <role
+         name="android.app.role.HOME"
+         behavior="HomeRoleBehavior"
++        defaultHolders="config_defaultAIFirstHome"
+         description="@string/role_home_description"
+         exclusive="true"
+         exclusivity="user"

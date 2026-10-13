@@ -1,23 +1,54 @@
 # Development and build-server setup
 
-**Immediate scope: APK development and physical tests on the dev Pixel.** The
-existing modest cloud server is the component build environment; the local
-MacBook handles approved USB transfer/testing. Do not start a full Android
-source build or provision a larger runner for this phase. The full-OS runner
-section below is a later-stage planning reference.
+**Immediate scope: prepare and compile the complete replacement OS.** The
+current workspace can build components and regenerate the framework/product
+patches, but its 16 GiB RAM and roughly 29 GiB disk cannot support a full source
+sync/build. Follow [OS integration](os-integration.md) for the current work;
+the standalone APK is an independently testable component, not the deliverable.
 
 The server compiles the software. The owner's **dev Pixel** supplies physical
 hardware testing after explicit installation/flash approval. KVM and an emulator
 are not required for that workflow.
 
-The deployment layout is a **cloud dev server**, a **local MacBook**, and a
+The development layout is a **cloud dev server**, a **local MacBook**, and a
 **local dev Pixel**. The cloud server produces artifacts; the MacBook downloads
 and verifies them, then handles an approved USB installation/test procedure on
-the Pixel. The current app provides Home routing and native controls; MCP is
-deferred. No project cloud runtime, relay, or phone-hosted tool server is needed.
-Follow the [dev Pixel guide](pixel-quickstart.md) for the current UI prototype.
-The cloud server is modest and its actual specs remain to be checked. The large
-runner profile below applies only to compiling the complete Android OS.
+the Pixel. AIHome supplies Home/native controls inside the OS; framework sources
+add a default-off shape observer. MCP is deferred and no project cloud runtime
+is required. The [earlier dev Pixel guide](pixel-quickstart.md) concerns only
+the standalone APK. The full-OS runner profile below is now relevant to the
+next complete compilation, not a requirement for small component tests.
+
+## OS source integration and development profile
+
+`scripts/prepare-os-integration.py` regenerates three canonical patches from
+`os/framework`, `os/gestures` and the source-built `os/product` payload against
+the manifest and selected base files pinned in `os/integration-base.json`.
+`--base-cache PATH --fetch --check` fetches only those small inputs and fails on
+stale output. `--write` prepares reviewable patches; it does not approve a lock.
+Neither mode downloads a full tree or compiles an upstream project.
+
+The recognizer suite has 239 synthetic assertions and the framework session
+suite has 88; product preparation/resource checks have separate scopes. They do not compile
+the complete framework controller, prove Soong assembly or test physical input.
+The passive observer leaves touches delivered to ChatGPT, so scrolling or other
+partial effects remain possible before a recognized shape opens a native app.
+
+Use the explicit source-only profile for development preparation:
+
+```sh
+python3 scripts/os-pipeline.py --development \
+  --lock os/development-lock.json validate-lock
+```
+
+The same global options select development `import`, `patches`, `verify-tree`
+and `capture-generated`. `scripts/os-build-development.sh` is the dedicated
+`userdebug`-only entry point; see the integration guide for its full invocation.
+It still requires capacity, a complete exact verified checkout and reviewed
+generated inputs. Development does not require production signing keys or a
+live update URL, excludes the official updater, and cannot authorize
+`release-gate`. Production continues to
+use `os/upstream-lock.json` and the strict `scripts/os-build.sh` path.
 
 ## Component development
 
@@ -35,8 +66,9 @@ python3.12 -m venv .venv
 make test PYTHON="$PWD/.venv/bin/python"
 ```
 
-`make test` covers the relay/MCP protocol, release-control failure cases and
-Android's platform-independent safety/journal code. It does not install software
+`make test` covers retained relay/MCP checks, OS-control failure cases and
+Android's platform-independent component code. The OS integration/gesture test
+commands and their exact scopes are listed in the integration guide. No test installs software
 on a phone. The MCP integration test needs permission to create **loopback
 sockets**. In managed Codex sandboxes, use a network-enabled command grant while
 retaining the configured proxy/CA. Do not turn off TLS validation or bypass the
@@ -100,17 +132,22 @@ Android/Chromium source hosts, Google's device-image endpoints and the package
 hosts named by the pinned release. Obtain any missing network-policy grants
 through the supported environment configuration rather than altering the proxy.
 
-`os/upstream-lock.json` deliberately starts blocked: key identity, our update
-endpoint, and the complete vendor/kernel/firmware evidence are not established.
+`os/upstream-lock.json` remains production-blocked: release key identity, our
+update endpoint and complete vendor/kernel/firmware evidence are not established.
+The separate development lock permits source preparation without those
+production identities; it is not proof of downloaded vendor bytes, kernel
+validation, a completed build or security-patch coverage.
 
-There is another explicit build blocker: generated vendor/dependency inputs need
-a reviewed, pinned content inventory and verifier support. The current
-`verify-tree` gate authenticates every pinned project plus exact selected patches,
-index/worktree bytes, and manifest copy/link outputs, and rejects all undeclared
-or Git-ignored additions. It runs before the build wrapper executes checkout
-code. Filling the lock and moving to a bigger server alone does not make a full
-OS build ready; implement and test generated-input provenance first. See
-[security-updates.md](security-updates.md).
+Generated vendor/dependency inventory support is implemented. `verify-tree`
+authenticates pinned projects, exact patches, index/worktree bytes and manifest
+copy/link outputs, then admits only explicitly inventoried generated content
+bound to reviewed source/generator identities and hashed factory/dependency
+artifacts. It rejects undeclared or mutated additions, including ignored files.
+`capture-generated` records a candidate inventory; it does not approve it.
+An independent review reference and exact inventory digest must be pinned in
+the selected lock before use. The actual full vendor/dependency generation and
+review have not happened here, so that remains a build-input blocker alongside
+runner capacity. See [security-updates.md](security-updates.md).
 `scripts/os-pipeline.py` implements import/patch/evidence checks, and
 `scripts/os-build.sh` is the unsigned build entry point. Do not change the lock
 to `verified` simply to make a build start. Cryptographic tag verification and
@@ -123,9 +160,10 @@ from the compilation host.
 
 ## Automation boundaries
 
-`.github/workflows/components.yml` installs hashed Python dependencies, runs
-protocol/release-control tests, compiles the Android app, runs lint, and retains
-debug APK/lint artifacts. Actions are commit-pinned, workflow permissions are
+`.github/workflows/components.yml` runs component and OS integration checks,
+including gesture/session tests and patch regeneration, compiles the Android
+app, runs lint, and retains component/integration artifacts. It does not perform
+a full OS build. Actions are commit-pinned, workflow permissions are
 read-only, and no secrets or phone access are required. The workflow has been
 run successfully on GitHub for an earlier revision. Check the run associated
 with the commit being installed, not merely the most recent green result.

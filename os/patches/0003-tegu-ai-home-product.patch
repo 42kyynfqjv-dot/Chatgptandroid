@@ -1,0 +1,863 @@
+diff --git a/config/mk/aifirst/Android.bp b/config/mk/aifirst/Android.bp
+new file mode 100644
+index 0000000..7f68d0b
+--- /dev/null
++++ b/config/mk/aifirst/Android.bp
+@@ -0,0 +1,28 @@
++// Compiled inside vendor/adevtool/config/mk/aifirst after source preparation.
++// An ordinary preinstalled app: no platform certificate, privileged UID or permissions.
++soong_namespace {}
++
++package {
++    default_applicable_licenses: ["aifirst_product_license"],
++}
++
++license {
++    name: "aifirst_product_license",
++    license_kinds: ["SPDX-license-identifier-Apache-2.0"],
++    license_text: ["LICENSE"],
++}
++
++android_app {
++    name: "AIHome",
++    manifest: "app/src/main/AndroidManifest.xml",
++    srcs: ["app/src/main/java/**/*.java"],
++    resource_dirs: ["app/src/main/res"],
++    sdk_version: "35",
++    min_sdk_version: "30",
++    target_sdk_version: "35",
++    java_version: "17",
++    product_specific: true,
++    aaptflags: ["--version-code", "2", "--version-name", "0.2.0"],
++    // Use the normal product development certificate, replaced by the release
++    // signing process. Never distribute this module with public development keys.
++}
+diff --git a/config/mk/aifirst/LICENSE b/config/mk/aifirst/LICENSE
+new file mode 100644
+index 0000000..cd72814
+--- /dev/null
++++ b/config/mk/aifirst/LICENSE
+@@ -0,0 +1,21 @@
++MIT License
++
++Copyright (c) 2026 Chatgptandroid contributors
++
++Permission is hereby granted, free of charge, to any person obtaining a copy
++of this software and associated documentation files (the "Software"), to deal
++in the Software without restriction, including without limitation the rights
++to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
++copies of the Software, and to permit persons to whom the Software is
++furnished to do so, subject to the following conditions:
++
++The above copyright notice and this permission notice shall be included in all
++copies or substantial portions of the Software.
++
++THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
++IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
++FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
++AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
++LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
++OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
++SOFTWARE.
+diff --git a/config/mk/aifirst/aifirst.mk b/config/mk/aifirst/aifirst.mk
+new file mode 100644
+index 0000000..3c9b0c8
+--- /dev/null
++++ b/config/mk/aifirst/aifirst.mk
+@@ -0,0 +1,9 @@
++# This file is inherited only by the pinned tegu device product.
++# Keep upstream Launcher3/Quickstep, Settings, Dialer, Messaging and Clock intact.
++PRODUCT_SOONG_NAMESPACES += vendor/adevtool/config/mk/aifirst
++
++PRODUCT_PACKAGES += AIHome
++
++# Static product overlays supply the initial HOME role and app routing defaults.
++# Subsequent user HOME-role and AI Home toggle choices remain authoritative.
++PRODUCT_PACKAGE_OVERLAYS += vendor/adevtool/config/mk/aifirst/overlay
+diff --git a/config/mk/aifirst/app/src/main/AndroidManifest.xml b/config/mk/aifirst/app/src/main/AndroidManifest.xml
+new file mode 100644
+index 0000000..6f498fb
+--- /dev/null
++++ b/config/mk/aifirst/app/src/main/AndroidManifest.xml
+@@ -0,0 +1,52 @@
++<?xml version="1.0" encoding="utf-8"?>
++<manifest package="dev.aifirst.launcher" xmlns:android="http://schemas.android.com/apk/res/android">
++    <queries>
++        <package android:name="com.openai.chatgpt" />
++        <intent>
++            <action android:name="android.intent.action.MAIN" />
++            <category android:name="android.intent.category.LAUNCHER" />
++        </intent>
++        <intent>
++            <action android:name="android.intent.action.MAIN" />
++            <category android:name="android.intent.category.APP_MESSAGING" />
++        </intent>
++        <intent>
++            <action android:name="android.intent.action.SENDTO" />
++            <data android:scheme="smsto" />
++        </intent>
++    </queries>
++    <application
++        android:allowBackup="false"
++        android:fullBackupContent="false"
++        android:dataExtractionRules="@xml/data_extraction_rules"
++        android:usesCleartextTraffic="false"
++        android:label="@string/app_name"
++        android:icon="@drawable/ic_home"
++        android:theme="@style/AppTheme"
++        android:supportsRtl="true">
++        <service
++            android:name=".ControlsTileService"
++            android:exported="true"
++            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
++            android:icon="@drawable/ic_controls"
++            android:label="@string/controls_tile">
++            <intent-filter>
++                <action android:name="android.service.quicksettings.action.QS_TILE" />
++            </intent-filter>
++        </service>
++        <activity
++            android:name=".MainActivity"
++            android:exported="true"
++            android:launchMode="singleTask">
++            <intent-filter>
++                <action android:name="android.intent.action.MAIN" />
++                <category android:name="android.intent.category.LAUNCHER" />
++            </intent-filter>
++            <intent-filter>
++                <action android:name="android.intent.action.MAIN" />
++                <category android:name="android.intent.category.HOME" />
++                <category android:name="android.intent.category.DEFAULT" />
++            </intent-filter>
++        </activity>
++    </application>
++</manifest>
+diff --git a/config/mk/aifirst/app/src/main/java/dev/aifirst/launcher/ActionDeadline.java b/config/mk/aifirst/app/src/main/java/dev/aifirst/launcher/ActionDeadline.java
+new file mode 100644
+index 0000000..15b3f18
+--- /dev/null
++++ b/config/mk/aifirst/app/src/main/java/dev/aifirst/launcher/ActionDeadline.java
+@@ -0,0 +1,16 @@
++package dev.aifirst.launcher;
++
++/** A local clock rollback cannot extend a request's original confirmation window. */
++public final class ActionDeadline {
++    private final long elapsedDeadline;
++
++    public ActionDeadline(double expiresAt, long wallNowMillis, long elapsedNowMillis) {
++        double remaining = expiresAt * 1000.0 - wallNowMillis;
++        long bounded = Double.isFinite(remaining) ? (long) Math.max(0, Math.min(300000, remaining)) : 0;
++        elapsedDeadline = elapsedNowMillis + bounded;
++    }
++
++    public boolean expired(double expiresAt, long wallNowMillis, long elapsedNowMillis) {
++        return SafetyPolicy.expired(expiresAt, wallNowMillis) || elapsedNowMillis >= elapsedDeadline;
++    }
++}
+diff --git a/config/mk/aifirst/app/src/main/java/dev/aifirst/launcher/ControlsTileService.java b/config/mk/aifirst/app/src/main/java/dev/aifirst/launcher/ControlsTileService.java
+new file mode 100644
+index 0000000..744e10e
+--- /dev/null
++++ b/config/mk/aifirst/app/src/main/java/dev/aifirst/launcher/ControlsTileService.java
+@@ -0,0 +1,47 @@
++package dev.aifirst.launcher;
++
++import android.annotation.SuppressLint;
++import android.app.PendingIntent;
++import android.content.Intent;
++import android.os.Build;
++import android.service.quicksettings.Tile;
++import android.service.quicksettings.TileService;
++
++/** Android binds this only as a Quick Settings tile; no worker, polling, or overlay. */
++public final class ControlsTileService extends TileService {
++    @Override public void onStartListening() {
++        super.onStartListening();
++        Tile tile = getQsTile();
++        if (tile != null) {
++            tile.setState(Tile.STATE_INACTIVE);
++            tile.setLabel(getString(R.string.controls_tile));
++            tile.setContentDescription(getString(R.string.controls_tile_description));
++            tile.updateTile();
++        }
++    }
++
++    @Override public void onClick() {
++        super.onClick();
++        if (isLocked()) { unlockAndRun(this::openControls); }
++        else { openControls(); }
++    }
++
++    private void openControls() {
++        Intent intent = MainActivity.controlsIntent(this);
++        if (Build.VERSION.SDK_INT >= 34) {
++            PendingIntent controls = PendingIntent.getActivity(this, 0, intent,
++                    PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
++            startActivityAndCollapse(controls);
++        } else {
++            openControlsBeforeAndroid14(intent);
++        }
++    }
++
++    @SuppressLint("StartActivityAndCollapseDeprecated")
++    @SuppressWarnings("deprecation")
++    private void openControlsBeforeAndroid14(Intent intent) {
++        // PendingIntent overload exists only on API 34+. This compatibility call is
++        // unreachable on Android 14+, where the deprecated overload would throw.
++        if (Build.VERSION.SDK_INT < 34) { startActivityAndCollapse(intent); }
++    }
++}
+diff --git a/config/mk/aifirst/app/src/main/java/dev/aifirst/launcher/HomeRoutingPolicy.java b/config/mk/aifirst/app/src/main/java/dev/aifirst/launcher/HomeRoutingPolicy.java
+new file mode 100644
+index 0000000..6369d95
+--- /dev/null
++++ b/config/mk/aifirst/app/src/main/java/dev/aifirst/launcher/HomeRoutingPolicy.java
+@@ -0,0 +1,18 @@
++package dev.aifirst.launcher;
++
++/** One launch opportunity per newly delivered HOME intent, never per Activity resume. */
++public final class HomeRoutingPolicy {
++    public static final String OPEN_CONTROLS = "dev.aifirst.launcher.OPEN_CONTROLS";
++    private boolean launchPending;
++
++    public void acceptIntent(String action, boolean homeCategory, boolean enabled, boolean restoring, boolean unlocked) {
++        launchPending = !restoring && enabled && unlocked && homeCategory
++                && "android.intent.action.MAIN".equals(action);
++    }
++
++    public boolean consumeChatgptLaunch() {
++        boolean launch = launchPending;
++        launchPending = false;
++        return launch;
++    }
++}
+diff --git a/config/mk/aifirst/app/src/main/java/dev/aifirst/launcher/MainActivity.java b/config/mk/aifirst/app/src/main/java/dev/aifirst/launcher/MainActivity.java
+new file mode 100644
+index 0000000..bcab8b7
+--- /dev/null
++++ b/config/mk/aifirst/app/src/main/java/dev/aifirst/launcher/MainActivity.java
+@@ -0,0 +1,221 @@
++package dev.aifirst.launcher;
++
++import android.app.Activity;
++import android.app.AlertDialog;
++import android.app.KeyguardManager;
++import android.app.StatusBarManager;
++import android.content.ActivityNotFoundException;
++import android.content.ComponentName;
++import android.content.Intent;
++import android.content.SharedPreferences;
++import android.content.pm.ResolveInfo;
++import android.graphics.Color;
++import android.graphics.Typeface;
++import android.graphics.drawable.Icon;
++import android.net.Uri;
++import android.os.Build;
++import android.os.Bundle;
++import android.provider.Settings;
++import android.provider.Telephony;
++import android.view.View;
++import android.view.WindowInsets;
++import android.widget.Button;
++import android.widget.LinearLayout;
++import android.widget.ScrollView;
++import android.widget.Switch;
++import android.widget.TextView;
++
++import java.util.ArrayList;
++import java.util.Comparator;
++import java.util.List;
++import java.util.Locale;
++
++/** Native phone controls and an optional, explicit Home-to-ChatGPT route. */
++public final class MainActivity extends Activity {
++    private static final String CHATGPT = "com.openai.chatgpt";
++    private static final String CHATGPT_STORE = "https://play.google.com/store/apps/details?id=com.openai.chatgpt&referrer=downloadWebPage&pli=1";
++    private static final String HOME_CHATGPT = "open_chatgpt_on_home";
++    private final HomeRoutingPolicy routing = new HomeRoutingPolicy();
++    private SharedPreferences preferences;
++    private TextView status;
++
++    @Override public void onCreate(Bundle state) {
++        super.onCreate(state);
++        preferences = getSharedPreferences("home_preferences", MODE_PRIVATE);
++        // The 0.1 relay experiment is retired. Remove old credentials on upgrade;
++        // retain its no-backup journal as historical evidence, with no runtime consumer.
++        getSharedPreferences("private_pairing", MODE_PRIVATE).edit().clear().apply();
++        buildControls();
++        routeIntent(getIntent(), state != null);
++    }
++
++    @Override protected void onNewIntent(Intent intent) {
++        super.onNewIntent(intent);
++        setIntent(intent);
++        routeIntent(intent, false);
++    }
++
++    // Deliberately no onResume/onStart routing: returning from an app must leave controls usable.
++    private void routeIntent(Intent intent, boolean restoring) {
++        KeyguardManager keyguard = getSystemService(KeyguardManager.class);
++        routing.acceptIntent(intent == null ? null : intent.getAction(),
++                intent != null && intent.hasCategory(Intent.CATEGORY_HOME),
++                preferences.getBoolean(HOME_CHATGPT,
++                        getResources().getBoolean(R.bool.chatgpt_on_home_default)), restoring,
++                keyguard != null && !keyguard.isDeviceLocked());
++        if (routing.consumeChatgptLaunch()) { openChatgpt(); }
++    }
++
++    static Intent controlsIntent(android.content.Context context) {
++        return new Intent(context, MainActivity.class)
++                .setAction(HomeRoutingPolicy.OPEN_CONTROLS)
++                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
++    }
++
++    private void buildControls() {
++        ScrollView scroll = new ScrollView(this);
++        scroll.setFillViewport(true);
++        LinearLayout root = new LinearLayout(this);
++        root.setOrientation(LinearLayout.VERTICAL);
++        root.setPadding(dp(24), dp(24), dp(24), dp(30));
++        root.setBackgroundColor(Color.rgb(16, 27, 34));
++        scroll.addView(root);
++        scroll.setOnApplyWindowInsetsListener((view, insets) -> {
++            android.graphics.Insets bars = insets.getInsets(WindowInsets.Type.systemBars());
++            view.setPadding(bars.left, bars.top, bars.right, bars.bottom);
++            return insets;
++        });
++        TextView eyebrow = text("YOUR PHONE, WITH YOU IN CONTROL", 12);
++        eyebrow.setTextColor(Color.rgb(147, 220, 194));
++        root.addView(eyebrow);
++        TextView title = text("AI Home", 38);
++        title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
++        root.addView(title);
++        root.addView(text("ChatGPT up front. Your phone within reach.", 17));
++        Button chat = button(root, "Open ChatGPT", this::openChatgpt);
++        chat.setTextSize(22);
++        chat.setMinHeight(dp(88));
++        root.addView(text("Use the official ChatGPT app for chat and Voice. Start Voice inside ChatGPT when you choose it.", 14));
++        button(root, "Phone", () -> launch(new Intent(Intent.ACTION_DIAL), "No dialer is available in this profile."));
++        button(root, "Messages", this::openMessages);
++        button(root, "All apps", this::showApps);
++        button(root, "Android Settings", () -> launch(new Intent(Settings.ACTION_SETTINGS), "Android Settings is unavailable."));
++
++        root.addView(text("Keep controls close", 22));
++        root.addView(text("Add Phone controls to Quick Settings. Swipe down while using ChatGPT and tap the tile to return here. The AI Home app icon also opens these controls.", 15));
++        button(root, "Add Phone controls tile", this::addControlsTile);
++        Switch home = new Switch(this);
++        home.setText(R.string.chatgpt_on_home);
++        home.setTextColor(Color.rgb(230, 239, 241));
++        home.setMinHeight(dp(56));
++        home.setChecked(preferences.getBoolean(HOME_CHATGPT,
++                getResources().getBoolean(R.bool.chatgpt_on_home_default)));
++        home.setOnCheckedChangeListener((button, enabled) -> {
++            preferences.edit().putBoolean(HOME_CHATGPT, enabled).apply();
++            setStatus(enabled
++                    ? "Choose AI Home as your default home app in Android Settings. Home will then open ChatGPT; the tile and AI Home icon still open controls."
++                    : "Home opens AI Home controls. You can also choose your previous launcher below.");
++        });
++        root.addView(home);
++        button(root, "Default home / choose launcher", () -> launch(new Intent(Settings.ACTION_HOME_SETTINGS), "Open Android Settings → Apps → Default apps → Home app."));
++
++        root.addView(text("App updates", 22));
++        button(root, "Install / update ChatGPT", () -> launch(new Intent(Intent.ACTION_VIEW, Uri.parse(CHATGPT_STORE)), "No app can open the official Google Play listing."));
++        root.addView(text("Updates come from the official Google Play listing. Play may show its normal store interface.", 13));
++        status = text("Phone calls, notifications, and the lock screen remain under Android's control.", 14);
++        status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
++        root.addView(status);
++        setContentView(scroll);
++    }
++
++    private TextView text(String value, int size) {
++        TextView view = new TextView(this);
++        view.setText(value);
++        view.setTextSize(size);
++        view.setTextColor(Color.rgb(230, 239, 241));
++        view.setPadding(0, dp(8), 0, dp(8));
++        return view;
++    }
++
++    private Button button(LinearLayout parent, String label, Runnable click) {
++        Button button = new Button(this);
++        button.setText(label);
++        button.setAllCaps(false);
++        button.setMinHeight(dp(52));
++        button.setOnClickListener(view -> click.run());
++        parent.addView(button, new LinearLayout.LayoutParams(-1, -2));
++        return button;
++    }
++
++    private int dp(int value) { return Math.round(value * getResources().getDisplayMetrics().density); }
++
++    private void setStatus(String value) { status.setText(value); }
++
++    private void openChatgpt() {
++        Intent chat = getPackageManager().getLaunchIntentForPackage(CHATGPT);
++        if (chat == null) {
++            setStatus("ChatGPT is not installed or available in this profile. These controls remain available; use Install / update ChatGPT below.");
++            return;
++        }
++        launch(chat, "ChatGPT could not open. Phone controls remain available here.");
++    }
++
++    private void openMessages() {
++        String smsPackage = Telephony.Sms.getDefaultSmsPackage(this);
++        Intent messages = smsPackage == null ? null : getPackageManager().getLaunchIntentForPackage(smsPackage);
++        if (messages == null) {
++            messages = Intent.makeMainSelectorActivity(Intent.ACTION_MAIN, Intent.CATEGORY_APP_MESSAGING);
++        }
++        launch(messages, "No messaging app is available. Choose or install one through Android Settings.");
++    }
++
++    private void launch(Intent intent, String failure) {
++        // A launcher must not put the dialer, Settings, or another app in its own task.
++        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
++        try { startActivity(intent); }
++        catch (ActivityNotFoundException | SecurityException exception) { setStatus(failure); }
++    }
++
++    private void addControlsTile() {
++        if (Build.VERSION.SDK_INT < 33) {
++            setStatus("Swipe down twice to open Quick Settings, tap Edit, and drag Phone controls into your active tiles.");
++            return;
++        }
++        StatusBarManager manager = getSystemService(StatusBarManager.class);
++        if (manager == null) {
++            setStatus("Open Quick Settings → Edit and add Phone controls manually.");
++            return;
++        }
++        try {
++            manager.requestAddTileService(new ComponentName(this, ControlsTileService.class),
++                    getString(R.string.controls_tile), Icon.createWithResource(this, R.drawable.ic_controls),
++                    getMainExecutor(), result -> {
++                        if (isDestroyed()) { return; }
++                        if (result == StatusBarManager.TILE_ADD_REQUEST_RESULT_TILE_ADDED
++                                || result == StatusBarManager.TILE_ADD_REQUEST_RESULT_TILE_ALREADY_ADDED) {
++                            setStatus("Phone controls is in Quick Settings. Swipe down from ChatGPT and tap it to return here.");
++                        } else {
++                            setStatus("The tile was not added. You can add Phone controls in Quick Settings → Edit.");
++                        }
++                    });
++        } catch (IllegalArgumentException | SecurityException exception) {
++            setStatus("Open Quick Settings → Edit and add Phone controls manually.");
++        }
++    }
++
++    private void showApps() {
++        Intent launcher = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER);
++        List<ResolveInfo> apps = new ArrayList<>(getPackageManager().queryIntentActivities(launcher, 0));
++        apps.removeIf(info -> getPackageName().equals(info.activityInfo.packageName));
++        apps.sort(Comparator.comparing(info -> info.loadLabel(getPackageManager()).toString().toLowerCase(Locale.ROOT)));
++        String[] labels = new String[apps.size()];
++        for (int i = 0; i < apps.size(); i++) { labels[i] = apps.get(i).loadLabel(getPackageManager()).toString(); }
++        new AlertDialog.Builder(this).setTitle("All apps").setItems(labels, (dialog, which) -> {
++            ResolveInfo target = apps.get(which);
++            Intent intent = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
++                    .setComponent(new ComponentName(target.activityInfo.packageName, target.activityInfo.name))
++                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
++            launch(intent, "That app could not open. It may be unavailable in this profile.");
++        }).setNegativeButton("Close", null).show();
++    }
++}
+diff --git a/config/mk/aifirst/app/src/main/java/dev/aifirst/launcher/RequestJournal.java b/config/mk/aifirst/app/src/main/java/dev/aifirst/launcher/RequestJournal.java
+new file mode 100644
+index 0000000..8c84c5d
+--- /dev/null
++++ b/config/mk/aifirst/app/src/main/java/dev/aifirst/launcher/RequestJournal.java
+@@ -0,0 +1,177 @@
++package dev.aifirst.launcher;
++
++import java.io.File;
++import java.io.FileOutputStream;
++import java.io.IOException;
++import java.nio.charset.StandardCharsets;
++import java.nio.file.Files;
++import java.util.ArrayList;
++import java.util.Base64;
++import java.util.LinkedHashMap;
++import java.util.List;
++import java.util.Map;
++import java.util.Set;
++
++/** Append-only private journal. Every transition is fsynced before success is returned. */
++public final class RequestJournal {
++    private static final Object IO_LOCK = new Object();
++    private static final long MAX_BYTES = 2 * 1024 * 1024;
++    private static final Set<String> FINAL = Set.of("rejected", "handed_off", "failed", "unknown");
++    private final File file;
++
++    public static final class Entry {
++        public final String id;
++        public final String scope;
++        public final String status;
++        public final String detail;
++        public final boolean acknowledged;
++        public final boolean conflict;
++
++        private Entry(String id, String scope, String status, String detail, boolean acknowledged) {
++            this(id, scope, status, detail, acknowledged, false);
++        }
++
++        private Entry(String id, String scope, String status, String detail, boolean acknowledged, boolean conflict) {
++            this.id = id;
++            this.scope = scope;
++            this.status = status;
++            this.detail = detail;
++            this.acknowledged = acknowledged;
++            this.conflict = conflict;
++        }
++
++        public boolean isFinal() { return FINAL.contains(status); }
++    }
++
++    public RequestJournal(File file) { this.file = file; }
++
++    public boolean reserve(String id, String scope) throws IOException {
++        synchronized (IO_LOCK) {
++            SafetyPolicy.requestId(id);
++            if (!scope.matches("[0-9a-f]{64}")) { throw new IOException("Invalid relay scope."); }
++            if (read().containsKey(id)) { return false; }
++            append(new Entry(id, scope, "claimed", "", false));
++            return true;
++        }
++    }
++
++    public void dispatching(String id) throws IOException {
++        synchronized (IO_LOCK) {
++            Entry old = require(id);
++            if (!"claimed".equals(old.status)) { throw new IOException("Request already handled."); }
++            append(new Entry(id, old.scope, "dispatching", "", false));
++        }
++    }
++
++    public void finish(String id, String status, String detail) throws IOException {
++        synchronized (IO_LOCK) {
++            Entry old = require(id);
++            if (!FINAL.contains(status) || old.isFinal() || detail.length() > 240) {
++                throw new IOException("Invalid journal transition.");
++            }
++            if ("handed_off".equals(status) && !"dispatching".equals(old.status)) {
++                throw new IOException("A handoff requires durable dispatch intent.");
++            }
++            append(new Entry(id, old.scope, status, detail, false));
++        }
++    }
++
++    public void acknowledge(String id) throws IOException {
++        synchronized (IO_LOCK) {
++            Entry old = require(id);
++            if (!old.isFinal()) { throw new IOException("Cannot acknowledge an unfinished request."); }
++            if (!old.acknowledged) {
++                append(new Entry(id, old.scope, old.status, old.detail, true));
++            }
++        }
++    }
++
++    public int recoverInterrupted() throws IOException {
++        synchronized (IO_LOCK) {
++            int recovered = 0;
++            for (Entry old : read().values()) {
++                if (!old.isFinal()) {
++                    append(new Entry(old.id, old.scope, "unknown",
++                            "App interrupted; outcome unknown. No automatic retry.", false));
++                    recovered++;
++                }
++            }
++            return recovered;
++        }
++    }
++
++    public void reportConflict(String id) throws IOException {
++        synchronized (IO_LOCK) {
++            Entry old = require(id);
++            if (!old.isFinal()) { throw new IOException("Cannot reconcile an unfinished request."); }
++            if (!old.acknowledged && !old.conflict) {
++                append(new Entry(id, old.scope, old.status, old.detail, false, true));
++            }
++        }
++    }
++
++    public List<Entry> pendingReports(String scope) throws IOException {
++        synchronized (IO_LOCK) {
++            List<Entry> pending = new ArrayList<>();
++            for (Entry entry : read().values()) {
++                if (entry.scope.equals(scope) && entry.isFinal() && !entry.acknowledged && !entry.conflict) {
++                    pending.add(entry);
++                }
++            }
++            return pending;
++        }
++    }
++
++    public List<Entry> entries() throws IOException {
++        synchronized (IO_LOCK) { return new ArrayList<>(read().values()); }
++    }
++
++    private Entry require(String id) throws IOException {
++        Entry entry = read().get(id);
++        if (entry == null) { throw new IOException("Request not reserved."); }
++        return entry;
++    }
++
++    private Map<String, Entry> read() throws IOException {
++        Map<String, Entry> entries = new LinkedHashMap<>();
++        if (!file.exists()) { return entries; }
++        if (file.length() > MAX_BYTES) { throw new IOException("Journal is full; remote actions blocked."); }
++        String text = new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8);
++        if (!text.isEmpty() && !text.endsWith("\n")) {
++            throw new IOException("Interrupted journal write; remote actions blocked.");
++        }
++        for (String line : text.split("\n")) {
++            if (line.isEmpty()) { continue; }
++            String[] parts = line.split("\t", -1);
++            try {
++                if (parts.length != 5 || !parts[1].matches("[0-9a-f]{64}")
++                        || !(FINAL.contains(parts[2]) || "claimed".equals(parts[2])
++                        || "dispatching".equals(parts[2])) || !parts[4].matches("[012]")) {
++                    throw new IllegalArgumentException();
++                }
++                String id = SafetyPolicy.requestId(parts[0]);
++                String detail = new String(Base64.getDecoder().decode(parts[3]), StandardCharsets.UTF_8);
++                if (detail.length() > 240) { throw new IllegalArgumentException(); }
++                entries.put(id, new Entry(id, parts[1], parts[2], detail, "1".equals(parts[4]), "2".equals(parts[4])));
++            } catch (IllegalArgumentException exception) {
++                throw new IOException("Journal integrity error; remote actions blocked.");
++            }
++        }
++        return entries;
++    }
++
++    private void append(Entry entry) throws IOException {
++        String line = entry.id + "\t" + entry.scope + "\t" + entry.status + "\t"
++                + Base64.getEncoder().encodeToString(entry.detail.getBytes(StandardCharsets.UTF_8))
++                + "\t" + (entry.conflict ? "2" : entry.acknowledged ? "1" : "0") + "\n";
++        byte[] bytes = line.getBytes(StandardCharsets.UTF_8);
++        if (file.length() + bytes.length > MAX_BYTES) {
++            throw new IOException("Journal is full; remote actions blocked.");
++        }
++        try (FileOutputStream output = new FileOutputStream(file, true)) {
++            output.write(bytes);
++            output.flush();
++            output.getFD().sync();
++        }
++    }
++}
+diff --git a/config/mk/aifirst/app/src/main/java/dev/aifirst/launcher/SafetyPolicy.java b/config/mk/aifirst/app/src/main/java/dev/aifirst/launcher/SafetyPolicy.java
+new file mode 100644
+index 0000000..f59b651
+--- /dev/null
++++ b/config/mk/aifirst/app/src/main/java/dev/aifirst/launcher/SafetyPolicy.java
+@@ -0,0 +1,103 @@
++package dev.aifirst.launcher;
++
++import java.net.URI;
++import java.net.URISyntaxException;
++import java.nio.charset.StandardCharsets;
++import java.security.MessageDigest;
++import java.security.NoSuchAlgorithmException;
++import java.util.Locale;
++import java.util.Set;
++import java.util.UUID;
++
++/** Pure Java policy shared by the phone client and dependency-free safety tests. */
++public final class SafetyPolicy {
++    private static final Set<String> APPS = Set.of("chatgpt", "settings", "clock", "browser");
++
++    private SafetyPolicy() { }
++
++    public static String origin(String raw) {
++        try {
++            URI uri = new URI(raw.trim());
++            if (!"https".equalsIgnoreCase(uri.getScheme()) || uri.getHost() == null
++                    || uri.getRawUserInfo() != null || uri.getRawQuery() != null
++                    || uri.getRawFragment() != null || uri.getPort() == 0
++                    || uri.getPort() > 65535
++                    || !(uri.getRawPath().isEmpty() || "/".equals(uri.getRawPath()))) {
++                throw new IllegalArgumentException("Use an HTTPS origin, without a path, login, query, or fragment.");
++            }
++            return new URI("https", null, uri.getHost().toLowerCase(Locale.ROOT),
++                    uri.getPort() == 443 ? -1 : uri.getPort(), null, null, null).toString();
++        } catch (URISyntaxException exception) {
++            throw new IllegalArgumentException("Invalid HTTPS relay origin.");
++        }
++    }
++
++    public static String token(String raw) {
++        if (raw == null || raw.length() < 32 || raw.length() > 512
++                || !raw.matches("[A-Za-z0-9_.~+/-]+={0,2}")) {
++            throw new IllegalArgumentException("Enter a device bearer token of 32–512 safe ASCII characters.");
++        }
++        return raw;
++    }
++
++    public static String requestId(String id) {
++        if (id == null || !id.matches("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
++                || !UUID.fromString(id).toString().equals(id)) {
++            throw new IllegalArgumentException("Invalid request identifier.");
++        }
++        return id;
++    }
++
++    public static String app(String app) {
++        if (app == null || !APPS.contains(app)) {
++            throw new IllegalArgumentException("This app is not allowed.");
++        }
++        return app;
++    }
++
++    public static int integer(Object value, int min, int max) {
++        if (!(value instanceof Integer) && !(value instanceof Long)) {
++            throw new IllegalArgumentException("An integer is required.");
++        }
++        long number = ((Number) value).longValue();
++        if (number < min || number > max) {
++            throw new IllegalArgumentException("Number outside the allowed range.");
++        }
++        return (int) number;
++    }
++
++    public static String label(String label) {
++        if (label == null || label.codePointCount(0, label.length()) > 80) {
++            throw new IllegalArgumentException("Alarm labels must have at most 80 characters.");
++        }
++        for (int offset = 0; offset < label.length();) {
++            int cp = label.codePointAt(offset);
++            int kind = Character.getType(cp);
++            if (Character.isISOControl(cp) || kind == Character.FORMAT
++                    || kind == Character.SURROGATE || kind == Character.LINE_SEPARATOR
++                    || kind == Character.PARAGRAPH_SEPARATOR) {
++                throw new IllegalArgumentException("Alarm label contains an unsafe control character.");
++            }
++            offset += Character.charCount(cp);
++        }
++        return label;
++    }
++
++    public static boolean expired(double expiresAt, long nowMillis) {
++        return !Double.isFinite(expiresAt) || expiresAt <= nowMillis / 1000.0;
++    }
++
++    public static String scope(String origin) {
++        try {
++            byte[] digest = MessageDigest.getInstance("SHA-256")
++                    .digest(origin.getBytes(StandardCharsets.UTF_8));
++            StringBuilder result = new StringBuilder();
++            for (byte value : digest) {
++                result.append(String.format(Locale.ROOT, "%02x", value & 0xff));
++            }
++            return result.toString();
++        } catch (NoSuchAlgorithmException exception) {
++            throw new IllegalStateException("SHA-256 unavailable.", exception);
++        }
++    }
++}
+diff --git a/config/mk/aifirst/app/src/main/res/drawable/ic_controls.xml b/config/mk/aifirst/app/src/main/res/drawable/ic_controls.xml
+new file mode 100644
+index 0000000..597db64
+--- /dev/null
++++ b/config/mk/aifirst/app/src/main/res/drawable/ic_controls.xml
+@@ -0,0 +1,5 @@
++<vector xmlns:android="http://schemas.android.com/apk/res/android"
++    android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
++    <path android:fillColor="#FFFFFFFF"
++        android:pathData="M3,6h7v2h-7zM14,6h7v2h-7zM10,3h4v8h-4zM3,16h12v2h-12zM19,16h2v2h-2zM15,13h4v8h-4z" />
++</vector>
+diff --git a/config/mk/aifirst/app/src/main/res/drawable/ic_home.xml b/config/mk/aifirst/app/src/main/res/drawable/ic_home.xml
+new file mode 100644
+index 0000000..fc35caa
+--- /dev/null
++++ b/config/mk/aifirst/app/src/main/res/drawable/ic_home.xml
+@@ -0,0 +1,5 @@
++<vector xmlns:android="http://schemas.android.com/apk/res/android"
++    android:width="48dp" android:height="48dp" android:viewportWidth="48" android:viewportHeight="48">
++    <path android:fillColor="#101B22" android:pathData="M0,0h48v48h-48z" />
++    <path android:fillColor="#93DCC2" android:pathData="M24,7L5,23h5v18h10V28h8v13h10V23h5z" />
++</vector>
+diff --git a/config/mk/aifirst/app/src/main/res/values/bools.xml b/config/mk/aifirst/app/src/main/res/values/bools.xml
+new file mode 100644
+index 0000000..dfb294b
+--- /dev/null
++++ b/config/mk/aifirst/app/src/main/res/values/bools.xml
+@@ -0,0 +1,4 @@
++<resources>
++    <!-- Ordinary APK installs remain opt-in. The OS product overlays this default. -->
++    <bool name="chatgpt_on_home_default">false</bool>
++</resources>
+diff --git a/config/mk/aifirst/app/src/main/res/values/strings.xml b/config/mk/aifirst/app/src/main/res/values/strings.xml
+new file mode 100644
+index 0000000..c43dcb3
+--- /dev/null
++++ b/config/mk/aifirst/app/src/main/res/values/strings.xml
+@@ -0,0 +1,6 @@
++<resources>
++    <string name="app_name">AI Home</string>
++    <string name="controls_tile">Phone controls</string>
++    <string name="controls_tile_description">Open AI Home phone controls</string>
++    <string name="chatgpt_on_home">ChatGPT on Home</string>
++</resources>
+diff --git a/config/mk/aifirst/app/src/main/res/values/styles.xml b/config/mk/aifirst/app/src/main/res/values/styles.xml
+new file mode 100644
+index 0000000..e62f913
+--- /dev/null
++++ b/config/mk/aifirst/app/src/main/res/values/styles.xml
+@@ -0,0 +1,9 @@
++<resources>
++    <style name="AppTheme" parent="android:style/Theme.Material.NoActionBar">
++        <item name="android:fontFamily">sans</item>
++        <item name="android:colorAccent">#93DCC2</item>
++        <item name="android:windowLightStatusBar">false</item>
++        <item name="android:windowBackground">#101B22</item>
++        <item name="android:windowActionModeOverlay">true</item>
++    </style>
++</resources>
+diff --git a/config/mk/aifirst/app/src/main/res/xml/data_extraction_rules.xml b/config/mk/aifirst/app/src/main/res/xml/data_extraction_rules.xml
+new file mode 100644
+index 0000000..2a54136
+--- /dev/null
++++ b/config/mk/aifirst/app/src/main/res/xml/data_extraction_rules.xml
+@@ -0,0 +1,17 @@
++<?xml version="1.0" encoding="utf-8"?>
++<data-extraction-rules>
++    <cloud-backup disableIfNoEncryptionCapabilities="true">
++        <exclude domain="root" path="." />
++        <exclude domain="sharedpref" path="." />
++        <exclude domain="database" path="." />
++        <exclude domain="file" path="." />
++        <exclude domain="external" path="." />
++    </cloud-backup>
++    <device-transfer>
++        <exclude domain="root" path="." />
++        <exclude domain="sharedpref" path="." />
++        <exclude domain="database" path="." />
++        <exclude domain="file" path="." />
++        <exclude domain="external" path="." />
++    </device-transfer>
++</data-extraction-rules>
+diff --git a/config/mk/aifirst/overlay/frameworks/base/core/res/res/values/config.xml b/config/mk/aifirst/overlay/frameworks/base/core/res/res/values/config.xml
+new file mode 100644
+index 0000000..0a088ac
+--- /dev/null
++++ b/config/mk/aifirst/overlay/frameworks/base/core/res/res/values/config.xml
+@@ -0,0 +1,3 @@
++<resources>
++    <string name="config_defaultAIFirstHome" translatable="false">dev.aifirst.launcher</string>
++</resources>
+diff --git a/config/mk/aifirst/overlay/vendor/adevtool/config/mk/aifirst/app/src/main/res/values/bools.xml b/config/mk/aifirst/overlay/vendor/adevtool/config/mk/aifirst/app/src/main/res/values/bools.xml
+new file mode 100644
+index 0000000..5b3fbc0
+--- /dev/null
++++ b/config/mk/aifirst/overlay/vendor/adevtool/config/mk/aifirst/app/src/main/res/values/bools.xml
+@@ -0,0 +1,3 @@
++<resources>
++    <bool name="chatgpt_on_home_default">true</bool>
++</resources>
+diff --git a/config/mk/google_devices/device/tegu/device.mk b/config/mk/google_devices/device/tegu/device.mk
+index 149e701..4b183dc 100644
+--- a/config/mk/google_devices/device/tegu/device.mk
++++ b/config/mk/google_devices/device/tegu/device.mk
+@@ -4,3 +4,6 @@ TARGET_KERNEL_DIR ?= $(RELEASE_KERNEL_TEGU_DIR)
+ TARGET_BOARD_KERNEL_HEADERS ?= $(RELEASE_KERNEL_TEGU_DIR)/kernel-headers
+ 
+ include vendor/adevtool/config/mk/google_devices/platform/zumapro/device.mk
++
++# AI-first product: ordinary recovery/Home app and initial user defaults.
++$(call inherit-product, vendor/adevtool/config/mk/aifirst/aifirst.mk)

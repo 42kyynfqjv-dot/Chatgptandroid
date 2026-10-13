@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "upstream_tag": "2026100600",
+  "manifest_commit": "26f7e8a760d4343a501faf09773ec4cc61a6b56b",
+  "product_destination": {
+    "project": "vendor/adevtool",
+    "path": "config/mk/aifirst",
+    "generator": "scripts/prepare-os-product.py",
+    "arguments": [
+      "--output",
+      "DESTINATION_DIRECTORY"
+    ]
+  },
+  "patches": [
+    {
+      "project": "vendor/adevtool",
+      "repository": "https://github.com/GrapheneOS/adevtool.git",
+      "commit": "17df3b79a73e67ad68387b35c7d41c85e1d8103c",
+      "path": "config/mk/google_devices/device/tegu/device.mk",
+      "base_sha256": "6bf25575686b4e27cccaf1bbc90ffc46f5cb8966bf5bee20df1f4f50e3febaba",
+      "patched_sha256": "efd868b1267f3ab912236bac931c70003189a5f5ce402aed959a2a8d0d42c1e0",
+      "raw_url": "https://raw.githubusercontent.com/GrapheneOS/adevtool/17df3b79a73e67ad68387b35c7d41c85e1d8103c/config/mk/google_devices/device/tegu/device.mk",
+      "patch": "os/product/upstream-patches/adevtool-product.patch",
+      "patch_sha256": "4c411468b7d30ed187e6a75bbf505cf435bcc25368fc520ed1f5b70676a4f43e"
+    },
+    {
+      "project": "packages/modules/Permission",
+      "repository": "https://github.com/GrapheneOS/platform_packages_modules_Permission.git",
+      "commit": "4d6005dbabf3f2bf96e5215c5c2801809b051bf3",
+      "path": "PermissionController/res/xml/roles.xml",
+      "base_sha256": "e40eed5dffb0a2e239b5110a9cbe7666d7fdb985622d6592b90c9d6472a7fdc3",
+      "patched_sha256": "f7c27db53999b2653fb7bbfe176bb0e51af085b51139bb5e5550f21e0df264f1",
+      "raw_url": "https://raw.githubusercontent.com/GrapheneOS/platform_packages_modules_Permission/4d6005dbabf3f2bf96e5215c5c2801809b051bf3/PermissionController/res/xml/roles.xml",
+      "patch": "os/product/upstream-patches/permission-default-home.patch",
+      "patch_sha256": "bdde32aeb951e88d2f0e76b8e2fdeadced40c2ea94b07226e7e53af532cb0f1c"
+    },
+    {
+      "project": "frameworks/base",
+      "repository": "https://github.com/GrapheneOS/platform_frameworks_base.git",
+      "commit": "84183aff99be5e156dc0446a6fa2d4a7150f4bc3",
+      "path": "core/res/res/values/config.xml",
+      "base_sha256": "d9121e6c004d52b9f4e21d2e051f12efd7ab46f37b8c288e0314392a6d16b53f",
+      "patched_sha256": "9a754eeb9e51cbbef9650874279c73e52b568e2cc94a7422ad4fec48c2ae2dc3",
+      "raw_url": "https://raw.githubusercontent.com/GrapheneOS/platform_frameworks_base/84183aff99be5e156dc0446a6fa2d4a7150f4bc3/core/res/res/values/config.xml",
+      "patch": "os/product/upstream-patches/framework-default-home.patch",
+      "patch_sha256": "001d1b6d9493062dc3b013ce643a5f0b5c864aed9d0512f2baee70343e5da1d5"
+    }
+  ],
+  "verification": "Canonical patches checked against fetched exact-commit source; complete Soong/OS build and hardware HOME role behavior remain unverified."
+}

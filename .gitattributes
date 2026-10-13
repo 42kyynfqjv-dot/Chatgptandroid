@@ -3,3 +3,5 @@
 gradlew text eol=lf
 *.bat text eol=crlf
 *.jar -text
+# A unified diff represents an empty context line with one literal space.
+*.patch whitespace=-blank-at-eol

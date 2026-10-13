@@ -1,0 +1,4 @@
+<resources>
+    <!-- Ordinary APK installs remain opt-in. The OS product overlays this default. -->
+    <bool name="chatgpt_on_home_default">false</bool>
+</resources>

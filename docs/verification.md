@@ -1,6 +1,45 @@
 # Verification record
 
-## Current UI prototype: 0.2.0
+## Current OS source integration
+
+The current milestone is a complete OS source integration for Pixel 9a, not a
+new standalone launcher release. The following checks passed in the cloud
+workspace:
+
+| Check | Evidence | Limit |
+|---|---|---|
+| Shape recognizer | 239 synthetic assertions, including noisy/rotated shapes and rejected swipes, circles, open and retraced strokes | No measured phone recognition or false-positive rate |
+| Framework stroke session | 88 assertions on lifetime, focus/context, boundaries, timestamps, cancellation and immutable handoffs | Does not compile the Android controller or exercise real input dispatch |
+| Source/inventory/release pipeline | 54 Python tests, including development-profile isolation and exact generated-byte checks | Actual full vendor/dependency generation and review still outstanding |
+| Product preparation | 16 Python tests; staged Java/resources checked against SDK 35; OS resource default differs from APK default as intended | Not a Soong product build |
+| Canonical patch assembly | 12 Python tests; three patches reconstructed successfully against exact manifest/project/base-file pins | Only listed upstream files fetched; full-project patch application remains required |
+| Development build wrapper | 10 tests exercise argument/preflight failures, verifier ordering, inherited-checkout redirection, updater rejection and build invocation | Mocked build host; no OS compiled |
+| Home app | `assembleDebug lintDebug` passed; lint reports no issues; 16 routing and 84 retained legacy assertions pass | Independently compiled component, not a bootable OS |
+
+Two independent source reviews checked the gesture controller/hook against
+pinned upstream APIs and callback threading. They identified and resolved stale
+queued-gesture dispatch and touch-modal window attribution issues. Component
+patch applicability and existing Soong source inclusion were checked. A fresh
+canonical assembly includes those fixes and matches the development lock.
+
+The development profile accepts source preparation without production keys or
+an update endpoint. Production release validation rejects that profile. The
+production lock remains `blocked-unverified`; its unset fields were not filled
+to make a build pass. The build wrappers do not sign production releases or
+touch a phone.
+
+There has been **no full source sync, verified factory download, complete kernel
+derivation, Soong OS build, OS image packaging, boot or physical gesture test**.
+The current host's capacity prevents the full checkout/build. The next build
+procedure and input-review requirements are in [OS integration](os-integration.md).
+The observer is experimental and disabled by default; enabling it still leaves
+the drawn input visible to ChatGPT, which can react before the native app opens.
+
+GitHub repeats the component and pinned-file checks in the current revision's
+[workflow run](https://github.com/42kyynfqjv-dot/Chatgptandroid/actions/workflows/components.yml).
+Its OS integration artifact contains sources and patches, not a flashable image.
+
+## Historical standalone UI prototype: 0.2.0
 
 Verified in the cloud workspace on **2026-10-12 (UTC)**:
 
@@ -20,10 +59,11 @@ GitHub builds use their own debug signing identity, so their APK hash can differ
 Local APKs and build reports are ignored by Git; CI retains downloadable APK and
 lint artifacts with each run.
 
-The current app has native controls, opt-in Home-to-ChatGPT routing, and a Quick
-Settings tile. The old relay UI/client is removed. There is no phone install,
-physical Home/tile/call test, MCP connection, or full OS build behind these
-results. Run the [dev Pixel checks](pixel-quickstart.md) next.
+The standalone app has native controls, opt-in Home-to-ChatGPT routing, and a Quick
+Settings tile. The old relay UI/client is removed. The owner subsequently
+reported installing this APK and that it worked, then requested a full OS and
+gesture-based controls. That report is not a measured Home/tile/call or OS test.
+The [APK checks](pixel-quickstart.md) remain a historical component procedure.
 
 The repository is published on GitHub. The prior commit `cd547c0` passed
 [GitHub CI](https://github.com/42kyynfqjv-dot/Chatgptandroid/actions/runs/38185348762).
@@ -65,9 +105,9 @@ The component checks passed **44 Python tests** (28 OS controls,
 16 relay/MCP) and **84 Java safety assertions**. The local logs are
 `artifacts/component-tests.log` and `artifacts/os-tests.log` (the final OS rerun
 includes an additional manifest-tampering regression). Source-tree validation runs before executing
-checkout build scripts. Generated vendor/dependency inputs remain blocked until
-a reviewed inventory is implemented; filling the lock alone cannot make a full
-OS build safe or ready.
+checkout build scripts. At that initial milestone generated vendor/dependency
+inputs were unsupported. Inventory support is now implemented, as described
+above; real generated inputs still need preparation and review.
 
 ## Cloud capacity and toolchain
 
@@ -95,8 +135,9 @@ Installed platform 35 reports revision 2 / extension level 13.
 - Official ChatGPT Plugin creation, tunnel connection, account entitlement,
   Android typed tool calls, and Android Live/Voice tool calls. Each is a separate
   test in [the validation protocol](account-device-validation.md).
-- Physical APK installation, changing the dev Pixel's launcher, Google Play
-  setup, ChatGPT sign-in, alarm handoff, or hardware behavior.
+- Independently recorded launcher/Home, Google Play, ChatGPT sign-in, alarm,
+  native-app, gesture and hardware behavior on the full OS. The owner has
+  reported an APK installation; this workspace has no phone connection.
 - Full OS source sync, vendor factory-archive verification, complete kernel
   provenance, OS build, production signing, OTA generation, locked verified-boot
   installation, rollback/recovery or update testing.
@@ -106,7 +147,7 @@ Installed platform 35 reports revision 2 / extension level 13.
 The code and runner configuration are ready for further development. Production
 release remains blocked by the unset reviewed inputs and hardware evidence;
 there is no flashable OS image in this checkout. The dev Pixel is local to the owner and has not been modified by this cloud
-workspace. The current UI test procedure is in [the quickstart](pixel-quickstart.md).
+workspace. The current OS build path is in [OS integration](os-integration.md).
 
 The detailed capability matrix, source URLs and documented/conditional/unproven
 distinctions are in [chatgpt-feasibility.md](chatgpt-feasibility.md). The OS

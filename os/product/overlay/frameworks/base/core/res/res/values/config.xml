@@ -1,0 +1,3 @@
+<resources>
+    <string name="config_defaultAIFirstHome" translatable="false">dev.aifirst.launcher</string>
+</resources>

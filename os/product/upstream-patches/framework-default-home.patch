@@ -1,0 +1,14 @@
+diff --git a/core/res/res/values/config.xml b/core/res/res/values/config.xml
+--- a/core/res/res/values/config.xml
++++ b/core/res/res/values/config.xml
+@@ -2520,6 +2520,10 @@
+     <string name="config_defaultSms" translatable="false">@string/default_sms_application</string>
+     <!-- Whether the default emergency settings should be shown. -->
+     <bool name="config_showDefaultEmergency">false</bool>
++    <!-- Initial HOME role holder for products opting into an AI-first Home.
++         Empty by default; never replaces a user-selected role holder. -->
++    <string name="config_defaultAIFirstHome" translatable="false"></string>
++
+     <!-- Whether the default home settings should be shown. -->
+     <bool name="config_showDefaultHome">true</bool>
+     <!-- The name of the package that will hold the call redirection role by default. -->

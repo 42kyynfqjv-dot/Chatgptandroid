@@ -1,0 +1,3 @@
+<resources>
+    <bool name="chatgpt_on_home_default">true</bool>
+</resources>

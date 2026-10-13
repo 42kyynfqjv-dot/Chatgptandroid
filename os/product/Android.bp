@@ -1,0 +1,28 @@
+// Compiled inside vendor/adevtool/config/mk/aifirst after source preparation.
+// An ordinary preinstalled app: no platform certificate, privileged UID or permissions.
+soong_namespace {}
+
+package {
+    default_applicable_licenses: ["aifirst_product_license"],
+}
+
+license {
+    name: "aifirst_product_license",
+    license_kinds: ["SPDX-license-identifier-Apache-2.0"],
+    license_text: ["LICENSE"],
+}
+
+android_app {
+    name: "AIHome",
+    manifest: "app/src/main/AndroidManifest.xml",
+    srcs: ["app/src/main/java/**/*.java"],
+    resource_dirs: ["app/src/main/res"],
+    sdk_version: "35",
+    min_sdk_version: "30",
+    target_sdk_version: "35",
+    java_version: "17",
+    product_specific: true,
+    aaptflags: ["--version-code", "2", "--version-name", "0.2.0"],
+    // Use the normal product development certificate, replaced by the release
+    // signing process. Never distribute this module with public development keys.
+}

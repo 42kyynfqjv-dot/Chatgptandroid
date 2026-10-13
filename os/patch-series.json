@@ -1,4 +1,23 @@
 {
   "schema_version": 1,
-  "patches": []
+  "patches": [
+    {
+      "project": "frameworks/base",
+      "file": "os/patches/0001-framework-home-and-gestures.patch",
+      "sha256": "4e34f10ecf2d1adad593c5c0976686048c8308dc447bd07a960a4b25c9a4eddb",
+      "kind": "customization"
+    },
+    {
+      "project": "packages/modules/Permission",
+      "file": "os/patches/0002-default-home-role.patch",
+      "sha256": "a946eb5cf60368be6dbb32562220e9bbc8c6f23c0122f57bb4d3a97727a8bf3c",
+      "kind": "customization"
+    },
+    {
+      "project": "vendor/adevtool",
+      "file": "os/patches/0003-tegu-ai-home-product.patch",
+      "sha256": "a1ad6ce57fc14f730457bdbf5536ed4afd70aca7cbac44672a5633ca1a591787",
+      "kind": "customization"
+    }
+  ]
 }

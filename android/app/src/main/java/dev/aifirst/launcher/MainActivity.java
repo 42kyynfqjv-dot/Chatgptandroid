@@ -60,7 +60,8 @@ public final class MainActivity extends Activity {
         KeyguardManager keyguard = getSystemService(KeyguardManager.class);
         routing.acceptIntent(intent == null ? null : intent.getAction(),
                 intent != null && intent.hasCategory(Intent.CATEGORY_HOME),
-                preferences.getBoolean(HOME_CHATGPT, false), restoring,
+                preferences.getBoolean(HOME_CHATGPT,
+                        getResources().getBoolean(R.bool.chatgpt_on_home_default)), restoring,
                 keyguard != null && !keyguard.isDeviceLocked());
         if (routing.consumeChatgptLaunch()) { openChatgpt(); }
     }
@@ -107,7 +108,8 @@ public final class MainActivity extends Activity {
         home.setText(R.string.chatgpt_on_home);
         home.setTextColor(Color.rgb(230, 239, 241));
         home.setMinHeight(dp(56));
-        home.setChecked(preferences.getBoolean(HOME_CHATGPT, false));
+        home.setChecked(preferences.getBoolean(HOME_CHATGPT,
+                getResources().getBoolean(R.bool.chatgpt_on_home_default)));
         home.setOnCheckedChangeListener((button, enabled) -> {
             preferences.edit().putBoolean(HOME_CHATGPT, enabled).apply();
             setStatus(enabled

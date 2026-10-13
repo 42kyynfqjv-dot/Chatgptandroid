@@ -31,6 +31,23 @@ jobs:
           ../.venv/bin/python -m unittest discover -s tests -v
           ../.venv/bin/python -m pixel_bridge.export_openapi --origin https://relay.example.invalid > actions.openapi.json
           git diff --exit-code -- actions.openapi.json
+      - name: Check OS integration against pinned upstream files
+        run: |
+          python3 scripts/prepare-os-integration.py --base-cache "$RUNNER_TEMP/os-integration-base" --fetch --check
+          python3 scripts/os-pipeline.py --lock os/development-lock.json --development validate-lock
+          bash -n scripts/os-build.sh scripts/os-build-development.sh
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: pixel-os-source-integration
+          path: |
+            os/
+            scripts/os-pipeline.py
+            scripts/os-build-development.sh
+            scripts/prepare-os-integration.py
+            scripts/prepare-os-product.py
+            docs/os-integration.md
+          if-no-files-found: error
+          retention-days: 7
 
   android:
     runs-on: ubuntu-24.04
@@ -49,6 +66,10 @@ jobs:
         run: bash scripts/setup-android-sdk.sh
       - name: Test Home routing and retained core checks
         run: bash android/test-core.sh
+      - name: Test OS shapes and input-session boundaries
+        run: |
+          bash os/gestures/test.sh
+          bash os/framework/test.sh
       - name: Build and lint APK
         working-directory: android
         run: ./gradlew --no-daemon assembleDebug lintDebug

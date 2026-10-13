@@ -1,0 +1,128 @@
+--- a/services/core/java/com/android/server/wm/DisplayPolicy.java
++++ b/services/core/java/com/android/server/wm/DisplayPolicy.java
+@@ -339,6 +339,10 @@
+     private WindowState mFocusedWindow;
+     private WindowState mLastFocusedWindow;
+ 
++    // AI First owner-profile gesture experiment; never consumes application input.
++    private AiFirstShapeController mAiFirstShapeController;
++    private long mAiFirstFocusEpoch;
++
+     private WindowState mSystemUiControllingWindow;
+ 
+     // Candidate window to determine the color of navigation bar. The window needs to be top
+@@ -641,6 +645,11 @@
+             mSystemGestures = new SystemGesturesPointerEventListener(mUiContext, mHandler,
+                     gesturesPointerEventCallbacks);
+             displayContent.registerPointerEventListener(mSystemGestures);
++        }
++        if (displayContent.isDefaultDisplay) {
++            mAiFirstShapeController = new AiFirstShapeController(
++                    mContext, mHandler, this::snapshotAiFirstGestureContext);
++            displayContent.registerPointerEventListener(mAiFirstShapeController);
+         }
+         mAppTransitionListener = new WindowManagerInternal.AppTransitionListener(displayId) {
+ 
+@@ -2430,12 +2439,89 @@
+         return navBarInsets.bottom > 0;
+     }
+ 
++    /** Real WMS focus and display state; no recent-task inference and no cross-service IPC here. */
++    private AiFirstGestureSession.Context snapshotAiFirstGestureContext() {
++        synchronized (mLock) {
++            if (!mDisplayContent.isDefaultDisplay || mDisplayContent.isRemovedOrInvalid()
++                    || !mAwake || !mScreenOnFully || mDisplayContent.isSleeping()
++                    || mService.mAmInternal.getCurrentUserId() != UserHandle.USER_SYSTEM
++                    || mService.mPolicy.isKeyguardShowing() || mService.mPolicy.isKeyguardLocked()) {
++                return null;
++            }
++            final WindowState window = mFocusedWindow;
++            if (window == null || !window.isVisible() || !window.isDisplayed()
++                    || window.isAnimatingLw() || window.mActivityRecord == null
++                    || window.mShowUserId != UserHandle.USER_SYSTEM
++                    || UserHandle.getUserId(window.getOwningUid()) != UserHandle.USER_SYSTEM
++                    || window.mActivityRecord.mUserId != UserHandle.USER_SYSTEM
++                    || window.mActivityRecord.info.applicationInfo.uid != window.getOwningUid()
++                    || !"com.openai.chatgpt".equals(window.mActivityRecord.packageName)
++                    || !"com.openai.chatgpt".equals(window.getOwningPackage())
++                    || (window.mAttrs.type != TYPE_BASE_APPLICATION
++                            && window.mAttrs.type != LayoutParams.TYPE_APPLICATION)
++                    || (window.mAttrs.flags & LayoutParams.FLAG_NOT_TOUCHABLE) != 0
++                    || window.getWindowingMode()
++                            != android.app.WindowConfiguration.WINDOWING_MODE_FULLSCREEN) {
++                return null;
++            }
++            final WindowState ime = mDisplayContent.getImeWindow();
++            if ((ime != null && ime.isVisible())
++                    || (mNotificationShade != null && mNotificationShade.isVisible())) {
++                return null;
++            }
++            final DisplayInfo info = mDisplayContent.getDisplayInfo();
++            final double density = info.logicalDensityDpi / 160.0;
++            if (!Double.isFinite(density) || density <= 0) return null;
++            final Rect display = new Rect(0, 0, info.logicalWidth, info.logicalHeight);
++            final Insets insets = mDisplayContent.getInsetsStateController().getRawInsetsState()
++                    .calculateInsets(display, display, Type.systemBars() | Type.displayCutout()
++                            | Type.systemGestures() | Type.mandatorySystemGestures(),
++                            true /* ignoreVisibility */);
++            final Rect safe = new Rect(display);
++            safe.inset(insets);
++            if (!safe.intersect(window.getFrame())) return null;
++            final int edgeGuard = (int) Math.ceil(24 * density);
++            safe.inset(edgeGuard, edgeGuard);
++            if (safe.isEmpty()) return null;
++            // Pointer-spy event flags do not prove which underlying window received a touch.
++            // Reject another touchable window above this app anywhere in the usable gesture area.
++            final Region touchable = new Region();
++            window.getEffectiveTouchableRegion(touchable);
++            final Region outsideFocus = new Region(safe);
++            outsideFocus.op(touchable, Region.Op.DIFFERENCE);
++            if (!outsideFocus.isEmpty()) return null;
++            final boolean[] blocked = {false};
++            final boolean[] foundFocus = {false};
++            mDisplayContent.forAllWindows(candidate -> {
++                if (candidate == window) {
++                    foundFocus[0] = true;
++                    return true;
++                }
++                if (candidate.isVisible()
++                        && (candidate.mAttrs.flags & LayoutParams.FLAG_NOT_TOUCHABLE) == 0) {
++                    candidate.getEffectiveTouchableRegion(touchable);
++                    if (touchable.op(safe, Region.Op.INTERSECT)) {
++                        blocked[0] = true;
++                        return true;
++                    }
++                }
++                return false;
++            }, true /* traverseTopToBottom */);
++            if (blocked[0] || !foundFocus[0]) return null;
++            return new AiFirstGestureSession.Context(window, mAiFirstFocusEpoch, 0,
++                    UserHandle.USER_SYSTEM, mDisplayContent.getDisplayId(),
++                    info.logicalWidth, info.logicalHeight, info.rotation, density,
++                    safe.left, safe.top, safe.right, safe.bottom);
++        }
++    }
++
+     /**
+      * A new window has been focused.
+      */
+     public void focusChangedLw(WindowState lastFocus, WindowState newFocus) {
+         mFocusedWindow = newFocus;
+         mLastFocusedWindow = lastFocus;
++        mAiFirstFocusEpoch++; // Focus away and back must invalidate the entire stroke.
+         if (mDisplayContent.isDefaultDisplay) {
+             mService.mPolicy.onDefaultDisplayFocusChangedLw(newFocus);
+         }
+@@ -3413,6 +3499,12 @@
+     }
+ 
+     void release() {
++        if (mAiFirstShapeController != null) {
++            mAiFirstShapeController.stop();
++            if (!mDisplayContent.isRemovedOrInvalid()) {
++                mDisplayContent.unregisterPointerEventListener(mAiFirstShapeController);
++            }
++        }
+         mDisplayContent.mTransitionController.unregisterLegacyListener(mAppTransitionListener);
+         mHandler.post(mGestureNavigationSettingsObserver::unregister);
+         mHandler.post(mForceShowNavBarSettingsObserver::unregister);

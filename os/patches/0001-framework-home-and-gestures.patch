@@ -1,0 +1,933 @@
+diff --git a/core/res/res/values/config.xml b/core/res/res/values/config.xml
+index c53d2c8..e98e9fc 100644
+--- a/core/res/res/values/config.xml
++++ b/core/res/res/values/config.xml
+@@ -2520,6 +2520,10 @@
+     <string name="config_defaultSms" translatable="false">@string/default_sms_application</string>
+     <!-- Whether the default emergency settings should be shown. -->
+     <bool name="config_showDefaultEmergency">false</bool>
++    <!-- Initial HOME role holder for products opting into an AI-first Home.
++         Empty by default; never replaces a user-selected role holder. -->
++    <string name="config_defaultAIFirstHome" translatable="false"></string>
++
+     <!-- Whether the default home settings should be shown. -->
+     <bool name="config_showDefaultHome">true</bool>
+     <!-- The name of the package that will hold the call redirection role by default. -->
+diff --git a/services/core/java/com/android/server/wm/AiFirstGestureSession.java b/services/core/java/com/android/server/wm/AiFirstGestureSession.java
+new file mode 100644
+index 0000000..4b586d3
+--- /dev/null
++++ b/services/core/java/com/android/server/wm/AiFirstGestureSession.java
+@@ -0,0 +1,142 @@
++/* SPDX-License-Identifier: Apache-2.0 */
++package com.android.server.wm;
++
++import java.util.ArrayList;
++import java.util.List;
++
++import dev.aifirst.gestures.ShapeRecognizer;
++
++/** Bounded, dependency-free stroke lifetime. This class never launches or consumes input. */
++final class AiFirstGestureSession {
++    enum Phase { DOWN, MOVE, UP, CANCEL }
++
++    static final class Context {
++        final Object window;
++        final long focusEpoch;
++        final long environmentEpoch;
++        final int userId;
++        final int displayId;
++        final int width;
++        final int height;
++        final int rotation;
++        final double density;
++        final int left;
++        final int top;
++        final int right;
++        final int bottom;
++
++        Context(Object window, long focusEpoch, long environmentEpoch, int userId, int displayId,
++                int width, int height, int rotation, double density,
++                int left, int top, int right, int bottom) {
++            this.window = window;
++            this.focusEpoch = focusEpoch;
++            this.environmentEpoch = environmentEpoch;
++            this.userId = userId;
++            this.displayId = displayId;
++            this.width = width;
++            this.height = height;
++            this.rotation = rotation;
++            this.density = density;
++            this.left = left;
++            this.top = top;
++            this.right = right;
++            this.bottom = bottom;
++        }
++
++        Context withEnvironmentEpoch(long epoch) {
++            return new Context(window, focusEpoch, epoch, userId, displayId, width, height,
++                    rotation, density, left, top, right, bottom);
++        }
++
++        boolean valid() {
++            return window != null && userId == 0 && displayId == 0 && width > 0 && height > 0
++                    && rotation >= 0 && rotation <= 3 && Double.isFinite(density) && density > 0
++                    && left >= 0 && top >= 0 && right <= width && bottom <= height
++                    && left < right && top < bottom;
++        }
++
++        boolean same(Context other) {
++            return other != null && window == other.window && focusEpoch == other.focusEpoch
++                    && environmentEpoch == other.environmentEpoch && userId == other.userId
++                    && displayId == other.displayId && width == other.width && height == other.height
++                    && rotation == other.rotation && Double.compare(density, other.density) == 0
++                    && left == other.left && top == other.top
++                    && right == other.right && bottom == other.bottom;
++        }
++
++        boolean contains(double x, double y) {
++            return Double.isFinite(x) && Double.isFinite(y)
++                    && x >= left && x < right && y >= top && y < bottom;
++        }
++    }
++
++    static final class Stroke {
++        final Context context;
++        final List<ShapeRecognizer.Point> points;
++        final long durationMillis;
++        final long finishedAtMillis;
++
++        Stroke(Context context, List<ShapeRecognizer.Point> points, long durationMillis,
++                long finishedAtMillis) {
++            this.context = context;
++            this.points = List.copyOf(points);
++            this.durationMillis = durationMillis;
++            this.finishedAtMillis = finishedAtMillis;
++        }
++
++        boolean isFreshAt(long nowMillis, long maximumAgeMillis) {
++            return maximumAgeMillis >= 0 && nowMillis >= finishedAtMillis
++                    && nowMillis - finishedAtMillis <= maximumAgeMillis;
++        }
++    }
++
++    private final ArrayList<ShapeRecognizer.Point> points = new ArrayList<>();
++    private Context context;
++    private int pointerId;
++    private int deviceId;
++    private long downTime;
++    private long lastTime;
++
++    /** Pass CANCEL for non-finger, multiple-pointer, canceled, or otherwise invalid streams. */
++    Stroke accept(Phase phase, Context now, int pointer, int device, long down, long time,
++            double x, double y) {
++        if (phase == Phase.CANCEL || now == null || !now.valid() || !now.contains(x, y)) {
++            reset();
++            return null;
++        }
++        if (phase == Phase.DOWN) {
++            reset();
++            if (down < 0 || time < down || time - down > ShapeRecognizer.MAX_DURATION_MILLIS) {
++                return null;
++            }
++            context = now;
++            pointerId = pointer;
++            deviceId = device;
++            downTime = down;
++            lastTime = time;
++        } else if (context == null || !context.same(now) || pointer != pointerId
++                || device != deviceId || down != downTime || time < lastTime
++                || time < downTime || time - downTime > ShapeRecognizer.MAX_DURATION_MILLIS) {
++            reset();
++            return null;
++        }
++        if (points.size() >= ShapeRecognizer.MAX_POINTS) {
++            reset();
++            return null;
++        }
++        lastTime = time;
++        points.add(new ShapeRecognizer.Point(x, y));
++        if (phase != Phase.UP) {
++            return null;
++        }
++        Stroke result = time - downTime >= ShapeRecognizer.MIN_DURATION_MILLIS
++                ? new Stroke(context, points, time - downTime, time) : null;
++        reset();
++        return result;
++    }
++
++    void reset() {
++        context = null;
++        points.clear();
++    }
++}
+diff --git a/services/core/java/com/android/server/wm/AiFirstShapeController.java b/services/core/java/com/android/server/wm/AiFirstShapeController.java
+new file mode 100644
+index 0000000..965ceac
+--- /dev/null
++++ b/services/core/java/com/android/server/wm/AiFirstShapeController.java
+@@ -0,0 +1,246 @@
++/* SPDX-License-Identifier: Apache-2.0 */
++package com.android.server.wm;
++
++import android.content.ActivityNotFoundException;
++import android.content.BroadcastReceiver;
++import android.content.Context;
++import android.content.Intent;
++import android.content.IntentFilter;
++import android.database.ContentObserver;
++import android.os.Handler;
++import android.os.SystemClock;
++import android.os.UserHandle;
++import android.os.UserManager;
++import android.provider.Settings;
++import android.provider.Telephony;
++import android.telecom.TelecomManager;
++import android.telephony.TelephonyManager;
++import android.util.Slog;
++import android.view.Display;
++import android.view.InputDevice;
++import android.view.MotionEvent;
++import android.view.WindowManagerPolicyConstants.PointerEventListener;
++
++import dev.aifirst.gestures.ShapeRecognizer;
++
++/**
++ * Development-only OS observer. Input continues to ChatGPT unchanged; no pilfering, injection,
++ * buffering for arbitration, accessibility service, UI scraping, or coordinate logging.
++ */
++final class AiFirstShapeController implements PointerEventListener {
++    static final String SETTING = "aifirst_shape_gestures_enabled";
++    private static final String TAG = "AiFirstShapeController";
++    private static final long MAX_EVENT_AGE_MILLIS = 1000;
++
++    interface SnapshotProvider {
++        /** Returns null unless the actual focused window and display are eligible, under WMS lock. */
++        AiFirstGestureSession.Context snapshot();
++    }
++
++    private final Context context;
++    private final Handler handler;
++    private final SnapshotProvider provider;
++    private final AiFirstGestureSession session = new AiFirstGestureSession();
++    private final ShapeRecognizer recognizer = new ShapeRecognizer();
++    private final ContentObserver settingsObserver;
++    private final BroadcastReceiver interruptionReceiver;
++    private volatile boolean disposed;
++    // All following state is confined to the UI handler used by PointerEventDispatcher.
++    private boolean enabled;
++    private boolean observerRegistered;
++    private boolean receiverRegistered;
++    private long environmentEpoch;
++    private long dispatchGeneration;
++
++    AiFirstShapeController(Context context, Handler handler, SnapshotProvider provider) {
++        this.context = context;
++        this.handler = handler;
++        this.provider = provider;
++        settingsObserver = new ContentObserver(handler) {
++            @Override public void onChange(boolean selfChange) {
++                invalidate();
++                enabled = readEnabled();
++            }
++        };
++        interruptionReceiver = new BroadcastReceiver() {
++            @Override public void onReceive(Context ignored, Intent intent) {
++                // These protected system broadcasts also invalidate an away-and-back interruption.
++                invalidate();
++            }
++        };
++        // DisplayPolicy construction can hold the WMS lock. Register with other services later.
++        handler.post(this::start);
++    }
++
++    private void start() {
++        if (disposed) return;
++        try {
++            context.getContentResolver().registerContentObserver(
++                    Settings.Secure.getUriFor(SETTING), false, settingsObserver, UserHandle.USER_SYSTEM);
++            observerRegistered = true;
++            IntentFilter interruptions = new IntentFilter(TelephonyManager.ACTION_PHONE_STATE_CHANGED);
++            interruptions.addAction(Intent.ACTION_SCREEN_OFF);
++            interruptions.addAction(Intent.ACTION_USER_SWITCHED);
++            context.registerReceiverAsUser(interruptionReceiver, UserHandle.ALL,
++                    interruptions, null, handler);
++            receiverRegistered = true;
++            enabled = readEnabled();
++        } catch (RuntimeException exception) {
++            enabled = false;
++            Slog.w(TAG, "Gesture observer setup unavailable; shortcuts remain disabled.");
++            stop();
++        }
++    }
++
++    void stop() {
++        disposed = true;
++        handler.post(() -> {
++            invalidate();
++            enabled = false;
++            if (observerRegistered) {
++                try {
++                    context.getContentResolver().unregisterContentObserver(settingsObserver);
++                } catch (RuntimeException exception) {
++                    Slog.w(TAG, "Gesture settings observer cleanup unavailable.");
++                }
++                observerRegistered = false;
++            }
++            if (receiverRegistered) {
++                try {
++                    context.unregisterReceiver(interruptionReceiver);
++                } catch (RuntimeException exception) {
++                    Slog.w(TAG, "Gesture interruption observer cleanup unavailable.");
++                }
++                receiverRegistered = false;
++            }
++        });
++    }
++
++    private void invalidate() {
++        environmentEpoch++;
++        dispatchGeneration++;
++        session.reset();
++    }
++
++    @Override public void onPointerEvent(MotionEvent event) {
++        try {
++            observe(event);
++        } catch (RuntimeException exception) {
++            // Optional input observation must never take down system_server.
++            enabled = false;
++            invalidate();
++            Slog.w(TAG, "Gesture observation failed; shortcuts disabled until settings change.");
++        }
++    }
++
++    private void observe(MotionEvent event) {
++        if (disposed || !enabled) {
++            session.reset();
++            return;
++        }
++        int action = event.getActionMasked();
++        if (action == MotionEvent.ACTION_DOWN) dispatchGeneration++;
++        if (event.getDisplayId() != Display.DEFAULT_DISPLAY
++                || !event.isFromSource(InputDevice.SOURCE_TOUCHSCREEN)
++                || event.getPointerCount() != 1
++                || event.getHistorySize() > ShapeRecognizer.MAX_POINTS
++                || event.getToolType(0) != MotionEvent.TOOL_TYPE_FINGER
++                || (event.getFlags() & (MotionEvent.FLAG_WINDOW_IS_OBSCURED
++                        | MotionEvent.FLAG_WINDOW_IS_PARTIALLY_OBSCURED
++                        | MotionEvent.FLAG_CANCELED)) != 0
++                || (action != MotionEvent.ACTION_DOWN && action != MotionEvent.ACTION_MOVE
++                        && action != MotionEvent.ACTION_UP)) {
++            invalidate();
++            return;
++        }
++        long now = SystemClock.uptimeMillis();
++        if (event.getEventTime() > now || now - event.getEventTime() > MAX_EVENT_AGE_MILLIS) {
++            invalidate();
++            return;
++        }
++        AiFirstGestureSession.Context snapshot = snapshot();
++        if (snapshot == null) {
++            invalidate();
++            return;
++        }
++        int pointer = event.getPointerId(0);
++        int device = event.getDeviceId();
++        long down = event.getDownTime();
++        if (action != MotionEvent.ACTION_DOWN) {
++            // History must pass the same edge/context bounds; checking only the last point is unsafe.
++            for (int index = 0; index < event.getHistorySize(); index++) {
++                session.accept(AiFirstGestureSession.Phase.MOVE, snapshot, pointer, device, down,
++                        event.getHistoricalEventTime(index), event.getHistoricalX(0, index),
++                        event.getHistoricalY(0, index));
++            }
++        }
++        AiFirstGestureSession.Phase phase = action == MotionEvent.ACTION_DOWN
++                ? AiFirstGestureSession.Phase.DOWN : action == MotionEvent.ACTION_UP
++                        ? AiFirstGestureSession.Phase.UP : AiFirstGestureSession.Phase.MOVE;
++        AiFirstGestureSession.Stroke stroke = session.accept(phase, snapshot, pointer, device,
++                down, event.getEventTime(), event.getX(0), event.getY(0));
++        if (stroke != null) {
++            long generation = dispatchGeneration;
++            handler.post(() -> complete(stroke, generation));
++        }
++    }
++
++    private AiFirstGestureSession.Context snapshot() {
++        AiFirstGestureSession.Context state = provider.snapshot();
++        return state == null ? null : state.withEnvironmentEpoch(environmentEpoch);
++    }
++
++    private void complete(AiFirstGestureSession.Stroke stroke, long generation) {
++        if (disposed || generation != dispatchGeneration || !enabled
++                || !stroke.isFreshAt(SystemClock.uptimeMillis(), MAX_EVENT_AGE_MILLIS)) return;
++        try {
++            ShapeRecognizer.Shape shape = recognizer.recognize(
++                    stroke.points, stroke.durationMillis, stroke.context.density);
++            if (shape == ShapeRecognizer.Shape.NONE) return;
++            Intent intent;
++            if (shape == ShapeRecognizer.Shape.TRIANGLE) {
++                intent = new Intent(Intent.ACTION_DIAL); // No recipient and no call placement.
++            } else if (shape == ShapeRecognizer.Shape.SQUARE) {
++                String smsPackage = Telephony.Sms.getDefaultSmsPackage(context);
++                if (smsPackage == null) return;
++                intent = context.getPackageManager().getLaunchIntentForPackage(smsPackage);
++                if (intent == null) return;
++            } else {
++                return;
++            }
++            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
++            UserManager users = context.getSystemService(UserManager.class);
++            // Calls, settings and package resolution can cross Binder; do none under the WMS lock.
++            if (disposed || generation != dispatchGeneration || !readEnabled() || !callIdle()
++                    || users == null || !users.isUserUnlocked(UserHandle.SYSTEM)) return;
++            // Recheck real focus, focus epoch, user, keyguard, shade, IME, display and safe bounds last.
++            if (!stroke.context.same(snapshot())) return;
++            // Binder or WMS-lock delay must not turn an old shape into a surprise later launch.
++            if (!stroke.isFreshAt(SystemClock.uptimeMillis(), MAX_EVENT_AGE_MILLIS)) return;
++            context.startActivityAsUser(intent, UserHandle.SYSTEM);
++        } catch (ActivityNotFoundException | SecurityException exception) {
++            Slog.w(TAG, "Native app handoff unavailable; no call or message was sent.");
++        } catch (RuntimeException exception) {
++            // Failure of this optional feature must not crash the system-server input observer.
++            Slog.w(TAG, "Native app handoff could not be checked; shortcut canceled.");
++        }
++    }
++
++    private boolean readEnabled() {
++        try {
++            return !disposed && Settings.Secure.getIntForUser(context.getContentResolver(),
++                    SETTING, 0, UserHandle.USER_SYSTEM) == 1;
++        } catch (RuntimeException exception) {
++            return false;
++        }
++    }
++
++    private boolean callIdle() {
++        try {
++            TelecomManager telecom = context.getSystemService(TelecomManager.class);
++            return telecom != null && !telecom.isInCall() && !telecom.isRinging();
++        } catch (RuntimeException exception) {
++            return false;
++        }
++    }
++}
+diff --git a/services/core/java/com/android/server/wm/DisplayPolicy.java b/services/core/java/com/android/server/wm/DisplayPolicy.java
+index 34106a6..0924066 100644
+--- a/services/core/java/com/android/server/wm/DisplayPolicy.java
++++ b/services/core/java/com/android/server/wm/DisplayPolicy.java
+@@ -339,6 +339,10 @@ public class DisplayPolicy {
+     private WindowState mFocusedWindow;
+     private WindowState mLastFocusedWindow;
+ 
++    // AI First owner-profile gesture experiment; never consumes application input.
++    private AiFirstShapeController mAiFirstShapeController;
++    private long mAiFirstFocusEpoch;
++
+     private WindowState mSystemUiControllingWindow;
+ 
+     // Candidate window to determine the color of navigation bar. The window needs to be top
+@@ -642,6 +646,11 @@ public class DisplayPolicy {
+                     gesturesPointerEventCallbacks);
+             displayContent.registerPointerEventListener(mSystemGestures);
+         }
++        if (displayContent.isDefaultDisplay) {
++            mAiFirstShapeController = new AiFirstShapeController(
++                    mContext, mHandler, this::snapshotAiFirstGestureContext);
++            displayContent.registerPointerEventListener(mAiFirstShapeController);
++        }
+         mAppTransitionListener = new WindowManagerInternal.AppTransitionListener(displayId) {
+ 
+             private Runnable mAppTransitionPending = () -> {
+@@ -2430,12 +2439,89 @@ public class DisplayPolicy {
+         return navBarInsets.bottom > 0;
+     }
+ 
++    /** Real WMS focus and display state; no recent-task inference and no cross-service IPC here. */
++    private AiFirstGestureSession.Context snapshotAiFirstGestureContext() {
++        synchronized (mLock) {
++            if (!mDisplayContent.isDefaultDisplay || mDisplayContent.isRemovedOrInvalid()
++                    || !mAwake || !mScreenOnFully || mDisplayContent.isSleeping()
++                    || mService.mAmInternal.getCurrentUserId() != UserHandle.USER_SYSTEM
++                    || mService.mPolicy.isKeyguardShowing() || mService.mPolicy.isKeyguardLocked()) {
++                return null;
++            }
++            final WindowState window = mFocusedWindow;
++            if (window == null || !window.isVisible() || !window.isDisplayed()
++                    || window.isAnimatingLw() || window.mActivityRecord == null
++                    || window.mShowUserId != UserHandle.USER_SYSTEM
++                    || UserHandle.getUserId(window.getOwningUid()) != UserHandle.USER_SYSTEM
++                    || window.mActivityRecord.mUserId != UserHandle.USER_SYSTEM
++                    || window.mActivityRecord.info.applicationInfo.uid != window.getOwningUid()
++                    || !"com.openai.chatgpt".equals(window.mActivityRecord.packageName)
++                    || !"com.openai.chatgpt".equals(window.getOwningPackage())
++                    || (window.mAttrs.type != TYPE_BASE_APPLICATION
++                            && window.mAttrs.type != LayoutParams.TYPE_APPLICATION)
++                    || (window.mAttrs.flags & LayoutParams.FLAG_NOT_TOUCHABLE) != 0
++                    || window.getWindowingMode()
++                            != android.app.WindowConfiguration.WINDOWING_MODE_FULLSCREEN) {
++                return null;
++            }
++            final WindowState ime = mDisplayContent.getImeWindow();
++            if ((ime != null && ime.isVisible())
++                    || (mNotificationShade != null && mNotificationShade.isVisible())) {
++                return null;
++            }
++            final DisplayInfo info = mDisplayContent.getDisplayInfo();
++            final double density = info.logicalDensityDpi / 160.0;
++            if (!Double.isFinite(density) || density <= 0) return null;
++            final Rect display = new Rect(0, 0, info.logicalWidth, info.logicalHeight);
++            final Insets insets = mDisplayContent.getInsetsStateController().getRawInsetsState()
++                    .calculateInsets(display, display, Type.systemBars() | Type.displayCutout()
++                            | Type.systemGestures() | Type.mandatorySystemGestures(),
++                            true /* ignoreVisibility */);
++            final Rect safe = new Rect(display);
++            safe.inset(insets);
++            if (!safe.intersect(window.getFrame())) return null;
++            final int edgeGuard = (int) Math.ceil(24 * density);
++            safe.inset(edgeGuard, edgeGuard);
++            if (safe.isEmpty()) return null;
++            // Pointer-spy event flags do not prove which underlying window received a touch.
++            // Reject another touchable window above this app anywhere in the usable gesture area.
++            final Region touchable = new Region();
++            window.getEffectiveTouchableRegion(touchable);
++            final Region outsideFocus = new Region(safe);
++            outsideFocus.op(touchable, Region.Op.DIFFERENCE);
++            if (!outsideFocus.isEmpty()) return null;
++            final boolean[] blocked = {false};
++            final boolean[] foundFocus = {false};
++            mDisplayContent.forAllWindows(candidate -> {
++                if (candidate == window) {
++                    foundFocus[0] = true;
++                    return true;
++                }
++                if (candidate.isVisible()
++                        && (candidate.mAttrs.flags & LayoutParams.FLAG_NOT_TOUCHABLE) == 0) {
++                    candidate.getEffectiveTouchableRegion(touchable);
++                    if (touchable.op(safe, Region.Op.INTERSECT)) {
++                        blocked[0] = true;
++                        return true;
++                    }
++                }
++                return false;
++            }, true /* traverseTopToBottom */);
++            if (blocked[0] || !foundFocus[0]) return null;
++            return new AiFirstGestureSession.Context(window, mAiFirstFocusEpoch, 0,
++                    UserHandle.USER_SYSTEM, mDisplayContent.getDisplayId(),
++                    info.logicalWidth, info.logicalHeight, info.rotation, density,
++                    safe.left, safe.top, safe.right, safe.bottom);
++        }
++    }
++
+     /**
+      * A new window has been focused.
+      */
+     public void focusChangedLw(WindowState lastFocus, WindowState newFocus) {
+         mFocusedWindow = newFocus;
+         mLastFocusedWindow = lastFocus;
++        mAiFirstFocusEpoch++; // Focus away and back must invalidate the entire stroke.
+         if (mDisplayContent.isDefaultDisplay) {
+             mService.mPolicy.onDefaultDisplayFocusChangedLw(newFocus);
+         }
+@@ -3413,6 +3499,12 @@ public class DisplayPolicy {
+     }
+ 
+     void release() {
++        if (mAiFirstShapeController != null) {
++            mAiFirstShapeController.stop();
++            if (!mDisplayContent.isRemovedOrInvalid()) {
++                mDisplayContent.unregisterPointerEventListener(mAiFirstShapeController);
++            }
++        }
+         mDisplayContent.mTransitionController.unregisterLegacyListener(mAppTransitionListener);
+         mHandler.post(mGestureNavigationSettingsObserver::unregister);
+         mHandler.post(mForceShowNavBarSettingsObserver::unregister);
+diff --git a/services/core/java/dev/aifirst/gestures/ShapeRecognizer.java b/services/core/java/dev/aifirst/gestures/ShapeRecognizer.java
+new file mode 100644
+index 0000000..fac04c2
+--- /dev/null
++++ b/services/core/java/dev/aifirst/gestures/ShapeRecognizer.java
+@@ -0,0 +1,382 @@
++package dev.aifirst.gestures;
++
++import java.util.ArrayList;
++import java.util.Comparator;
++import java.util.List;
++
++/**
++ * Conservative, geometry-only recognizer for one completed single-finger stroke.
++ * This class does not consume touch events or infer whether the user intended a system gesture.
++ * The caller must discard cancelled/multitouch streams and must never submit a truncated stream.
++ */
++public final class ShapeRecognizer {
++    public enum Shape { NONE, TRIANGLE, SQUARE }
++
++    public record Point(double x, double y) { }
++
++    public static final int MAX_POINTS = 512;
++    public static final long MIN_DURATION_MILLIS = 180;
++    public static final long MAX_DURATION_MILLIS = 3000;
++    public static final double MIN_SPAN_DP = 96.0;
++    public static final double MAX_CLOSURE_GAP_DP = 24.0;
++    private static final int RESAMPLED_POINTS = 120;
++    private static final double EPSILON = 1e-9;
++
++    /**
++     * @param samples completed stroke, including its down and up positions, in screen pixels
++     * @param durationMillis elapsed event time from down to up, measured with a monotonic clock
++     * @param pixelsPerDp Android display density (not font scale)
++     * @return NONE for invalid, out-of-bounds, ambiguous, or unsupported paths
++     */
++    public Shape recognize(List<Point> samples, long durationMillis, double pixelsPerDp) {
++        if (samples == null || samples.size() < 8 || samples.size() > MAX_POINTS
++                || durationMillis < MIN_DURATION_MILLIS || durationMillis > MAX_DURATION_MILLIS
++                || !Double.isFinite(pixelsPerDp) || pixelsPerDp <= 0 || pixelsPerDp > 10) {
++            return Shape.NONE;
++        }
++        double minX = Double.POSITIVE_INFINITY;
++        double minY = Double.POSITIVE_INFINITY;
++        double maxX = Double.NEGATIVE_INFINITY;
++        double maxY = Double.NEGATIVE_INFINITY;
++        for (Point point : samples) {
++            if (point == null || !Double.isFinite(point.x) || !Double.isFinite(point.y)
++                    || Math.abs(point.x) > 1_000_000 || Math.abs(point.y) > 1_000_000) {
++                return Shape.NONE;
++            }
++            minX = Math.min(minX, point.x);
++            minY = Math.min(minY, point.y);
++            maxX = Math.max(maxX, point.x);
++            maxY = Math.max(maxY, point.y);
++        }
++        double width = maxX - minX;
++        double height = maxY - minY;
++        if (Math.min(width, height) < MIN_SPAN_DP * pixelsPerDp) { return Shape.NONE; }
++        double diagonal = Math.hypot(width, height);
++        if (distance(samples.get(0), samples.get(samples.size() - 1))
++                > Math.min(diagonal * 0.08, MAX_CLOSURE_GAP_DP * pixelsPerDp)) {
++            return Shape.NONE;
++        }
++
++        // Remove stationary sampling jitter in physical display units before equal-distance sampling.
++        List<Point> normalized = new ArrayList<>();
++        Point previous = null;
++        for (Point point : samples) {
++            if (previous == null || distance(previous, point) >= pixelsPerDp) {
++                normalized.add(new Point((point.x - minX) / diagonal, (point.y - minY) / diagonal));
++                previous = point;
++            }
++        }
++        if (normalized.size() < 8) { return Shape.NONE; }
++        List<Point> path = smooth(resampleClosed(normalized));
++        List<Point> hull = convexHull(path);
++        if (hull.size() < 3) { return Shape.NONE; }
++        // A rotated small square must not become "large" just because its axis-aligned box grows.
++        if (minimumWidth(hull) * diagonal < MIN_SPAN_DP * pixelsPerDp) { return Shape.NONE; }
++        double extent = diameter(hull);
++        if (extent <= EPSILON || distance(samples.get(0), samples.get(samples.size() - 1))
++                > 0.08 * diagonal * extent) {
++            return Shape.NONE;
++        }
++        // Longest hull chord is orientation-independent; polygon error tolerances use this scale.
++        path = scale(path, 1 / extent);
++        hull = scale(hull, 1 / extent);
++        double hullArea = Math.abs(signedArea(hull));
++        if (hullArea < 0.12) { return Shape.NONE; }
++
++        // Retracing, multiple laps, crossings and deep concavities are not polygon gestures.
++        double hullPerimeter = perimeter(hull);
++        double pathPerimeter = perimeter(path);
++        double areaRatio = Math.abs(signedArea(path)) / hullArea;
++        if (pathPerimeter / hullPerimeter > 1.16 || areaRatio < 0.86 || areaRatio > 1.08
++                || hasCrossing(path)) {
++            return Shape.NONE;
++        }
++
++        List<Point> triangle = simplifyHull(hull, 3);
++        if (fitsPolygon(path, triangle, hullArea, 0.86) && isTriangle(triangle)) {
++            return Shape.TRIANGLE;
++        }
++        List<Point> square = simplifyHull(hull, 4);
++        if (square.size() == 4 && fitsPolygon(path, square, hullArea, 0.88) && isSquare(square)) {
++            return Shape.SQUARE;
++        }
++        return Shape.NONE;
++    }
++
++    private static List<Point> resampleClosed(List<Point> points) {
++        double length = perimeter(points);
++        List<Point> result = new ArrayList<>(RESAMPLED_POINTS);
++        int edge = 0;
++        double traversed = 0;
++        double edgeLength = distance(points.get(0), points.get(1));
++        for (int i = 0; i < RESAMPLED_POINTS; i++) {
++            double target = length * i / RESAMPLED_POINTS;
++            while (edge < points.size() - 1 && traversed + edgeLength < target) {
++                traversed += edgeLength;
++                edge++;
++                edgeLength = distance(points.get(edge), points.get((edge + 1) % points.size()));
++            }
++            Point a = points.get(edge);
++            Point b = points.get((edge + 1) % points.size());
++            double fraction = edgeLength > EPSILON ? (target - traversed) / edgeLength : 0;
++            result.add(new Point(a.x + (b.x - a.x) * fraction, a.y + (b.y - a.y) * fraction));
++        }
++        return result;
++    }
++
++    private static List<Point> smooth(List<Point> points) {
++        List<Point> result = new ArrayList<>(points.size());
++        for (int i = 0; i < points.size(); i++) {
++            Point previous = points.get((i + points.size() - 1) % points.size());
++            Point point = points.get(i);
++            Point next = points.get((i + 1) % points.size());
++            result.add(new Point((previous.x + 2 * point.x + next.x) / 4,
++                    (previous.y + 2 * point.y + next.y) / 4));
++        }
++        return result;
++    }
++
++    private static List<Point> scale(List<Point> points, double factor) {
++        List<Point> result = new ArrayList<>(points.size());
++        for (Point point : points) { result.add(new Point(point.x * factor, point.y * factor)); }
++        return result;
++    }
++
++    private static double diameter(List<Point> points) {
++        double longest = 0;
++        for (int i = 0; i < points.size(); i++) {
++            for (int j = i + 1; j < points.size(); j++) {
++                longest = Math.max(longest, distance(points.get(i), points.get(j)));
++            }
++        }
++        return longest;
++    }
++
++    private static double minimumWidth(List<Point> hull) {
++        double minimum = Double.POSITIVE_INFINITY;
++        for (int i = 0; i < hull.size(); i++) {
++            Point a = hull.get(i);
++            Point b = hull.get((i + 1) % hull.size());
++            double edgeLength = distance(a, b);
++            if (edgeLength <= EPSILON) { continue; }
++            double farthest = 0;
++            for (Point point : hull) {
++                farthest = Math.max(farthest, Math.abs(cross(a, b, point)) / edgeLength);
++            }
++            minimum = Math.min(minimum, farthest);
++        }
++        return minimum;
++    }
++
++    private static List<Point> convexHull(List<Point> points) {
++        List<Point> sorted = new ArrayList<>(points);
++        sorted.sort(Comparator.comparingDouble(Point::x).thenComparingDouble(Point::y));
++        List<Point> hull = new ArrayList<>();
++        for (Point point : sorted) {
++            while (hull.size() >= 2 && cross(hull.get(hull.size() - 2), hull.get(hull.size() - 1), point) <= EPSILON) {
++                hull.remove(hull.size() - 1);
++            }
++            hull.add(point);
++        }
++        int lowerSize = hull.size();
++        for (int i = sorted.size() - 2; i >= 0; i--) {
++            Point point = sorted.get(i);
++            while (hull.size() > lowerSize && cross(hull.get(hull.size() - 2), hull.get(hull.size() - 1), point) <= EPSILON) {
++                hull.remove(hull.size() - 1);
++            }
++            hull.add(point);
++        }
++        if (!hull.isEmpty()) { hull.remove(hull.size() - 1); }
++        return hull;
++    }
++
++    /**
++     * Find the largest inscribed polygon instead of greedily deleting rounded corners.
++     * For a quadrilateral, each diagonal independently selects the farthest point on each side.
++     * At most 120 hull points keep both searches bounded by O(n^3), without allocation per candidate.
++     */
++    private static List<Point> simplifyHull(List<Point> hull, int count) {
++        int size = hull.size();
++        if (size <= count) { return new ArrayList<>(hull); }
++        int[] best = new int[count];
++        double bestArea = -1;
++        for (int i = 0; i < size - 2; i++) {
++            for (int k = i + 2; k < size; k++) {
++                int inside = -1;
++                double insideArea = -1;
++                for (int j = i + 1; j < k; j++) {
++                    double area = cross(hull.get(i), hull.get(j), hull.get(k));
++                    if (area > insideArea) { insideArea = area; inside = j; }
++                }
++                if (count == 3) {
++                    if (insideArea > bestArea) {
++                        bestArea = insideArea;
++                        best[0] = i; best[1] = inside; best[2] = k;
++                    }
++                    continue;
++                }
++                int outside = -1;
++                double outsideArea = -1;
++                for (int offset = k + 1; offset < size + i; offset++) {
++                    int j = offset % size;
++                    double area = cross(hull.get(i), hull.get(k), hull.get(j));
++                    if (area > outsideArea) { outsideArea = area; outside = j; }
++                }
++                if (outside >= 0 && insideArea + outsideArea > bestArea) {
++                    bestArea = insideArea + outsideArea;
++                    best[0] = i; best[1] = inside; best[2] = k; best[3] = outside;
++                }
++            }
++        }
++        List<Point> result = new ArrayList<>(count);
++        for (int index : best) { result.add(hull.get(index)); }
++        return result;
++    }
++
++    private static boolean fitsPolygon(List<Point> path, List<Point> polygon,
++            double hullArea, double minAreaCoverage) {
++        if (Math.abs(signedArea(polygon)) / hullArea < minAreaCoverage) { return false; }
++        double squaredError = 0;
++        for (Point point : path) {
++            double nearest = Double.POSITIVE_INFINITY;
++            for (int edge = 0; edge < polygon.size(); edge++) {
++                nearest = Math.min(nearest, distanceToSegment(point, polygon.get(edge),
++                        polygon.get((edge + 1) % polygon.size())));
++            }
++            if (nearest > 0.075) { return false; }
++            squaredError += nearest * nearest;
++        }
++        return Math.sqrt(squaredError / path.size()) <= 0.032 && followsBoundaryOnce(path, polygon);
++    }
++
++    /** A good outline alone must not accept an edge that was drawn forward, backward, then forward. */
++    private static boolean followsBoundaryOnce(List<Point> path, List<Point> polygon) {
++        double total = perimeter(polygon);
++        double[] positions = new double[path.size()];
++        for (int i = 0; i < path.size(); i++) {
++            Point point = path.get(i);
++            double nearest = Double.POSITIVE_INFINITY;
++            double edgeStart = 0;
++            for (int edge = 0; edge < polygon.size(); edge++) {
++                Point a = polygon.get(edge);
++                Point b = polygon.get((edge + 1) % polygon.size());
++                double length = distance(a, b);
++                double fraction = ((point.x - a.x) * (b.x - a.x) + (point.y - a.y) * (b.y - a.y))
++                        / (length * length);
++                fraction = Math.max(0, Math.min(1, fraction));
++                double error = Math.hypot(point.x - a.x - fraction * (b.x - a.x),
++                        point.y - a.y - fraction * (b.y - a.y));
++                if (error < nearest) {
++                    nearest = error;
++                    positions[i] = edgeStart + fraction * length;
++                }
++                edgeStart += length;
++            }
++        }
++        double direction = Math.signum(signedArea(path));
++        double backwards = 0;
++        double progress = 0;
++        for (int i = 0; i < positions.length; i++) {
++            double delta = (positions[(i + 1) % positions.length] - positions[i]) * direction;
++            if (delta > total / 2) { delta -= total; }
++            if (delta < -total / 2) { delta += total; }
++            backwards += Math.max(0, -delta);
++            progress += delta;
++        }
++        return backwards / total <= 0.025 && Math.abs(progress / total - 1) <= 0.10;
++    }
++
++    private static boolean isTriangle(List<Point> triangle) {
++        if (triangle.size() != 3) { return false; }
++        for (int i = 0; i < 3; i++) {
++            double angle = interiorAngle(triangle, i);
++            if (angle < 27 || angle > 120) { return false; }
++        }
++        return true;
++    }
++
++    private static boolean isSquare(List<Point> square) {
++        double minEdge = Double.POSITIVE_INFINITY;
++        double maxEdge = 0;
++        for (int i = 0; i < 4; i++) {
++            double angle = interiorAngle(square, i);
++            if (angle < 68 || angle > 112) { return false; }
++            double edge = distance(square.get(i), square.get((i + 1) % 4));
++            minEdge = Math.min(minEdge, edge);
++            maxEdge = Math.max(maxEdge, edge);
++        }
++        // Deliberately conservative: distinctly rectangular scrolling loops are not squares.
++        if (maxEdge / minEdge > 1.30) { return false; }
++        double firstDiagonal = distance(square.get(0), square.get(2));
++        double secondDiagonal = distance(square.get(1), square.get(3));
++        if (Math.max(firstDiagonal, secondDiagonal) / Math.min(firstDiagonal, secondDiagonal) > 1.23) {
++            return false;
++        }
++        Point firstMid = midpoint(square.get(0), square.get(2));
++        Point secondMid = midpoint(square.get(1), square.get(3));
++        return distance(firstMid, secondMid) / Math.max(firstDiagonal, secondDiagonal) <= 0.09;
++    }
++
++    private static double interiorAngle(List<Point> polygon, int index) {
++        Point a = polygon.get((index + polygon.size() - 1) % polygon.size());
++        Point b = polygon.get(index);
++        Point c = polygon.get((index + 1) % polygon.size());
++        double cosine = ((a.x - b.x) * (c.x - b.x) + (a.y - b.y) * (c.y - b.y))
++                / (distance(a, b) * distance(b, c));
++        return Math.toDegrees(Math.acos(Math.max(-1, Math.min(1, cosine))));
++    }
++
++    private static boolean hasCrossing(List<Point> path) {
++        int count = path.size();
++        for (int i = 0; i < count; i++) {
++            for (int j = i + 4; j < count; j++) {
++                if (count - (j - i) < 4) { continue; }
++                Point a = path.get(i);
++                Point b = path.get((i + 1) % count);
++                Point c = path.get(j);
++                Point d = path.get((j + 1) % count);
++                if (cross(a, b, c) * cross(a, b, d) < -EPSILON
++                        && cross(c, d, a) * cross(c, d, b) < -EPSILON) {
++                    return true;
++                }
++            }
++        }
++        return false;
++    }
++
++    private static double distanceToSegment(Point point, Point a, Point b) {
++        double dx = b.x - a.x;
++        double dy = b.y - a.y;
++        double lengthSquared = dx * dx + dy * dy;
++        double fraction = lengthSquared > EPSILON
++                ? ((point.x - a.x) * dx + (point.y - a.y) * dy) / lengthSquared : 0;
++        fraction = Math.max(0, Math.min(1, fraction));
++        return Math.hypot(point.x - a.x - fraction * dx, point.y - a.y - fraction * dy);
++    }
++
++    private static double perimeter(List<Point> points) {
++        double perimeter = 0;
++        for (int i = 0; i < points.size(); i++) {
++            perimeter += distance(points.get(i), points.get((i + 1) % points.size()));
++        }
++        return perimeter;
++    }
++
++    private static double signedArea(List<Point> polygon) {
++        double sum = 0;
++        for (int i = 0; i < polygon.size(); i++) {
++            Point a = polygon.get(i);
++            Point b = polygon.get((i + 1) % polygon.size());
++            sum += a.x * b.y - a.y * b.x;
++        }
++        return sum / 2;
++    }
++
++    private static Point midpoint(Point a, Point b) { return new Point((a.x + b.x) / 2, (a.y + b.y) / 2); }
++
++    private static double distance(Point a, Point b) { return Math.hypot(a.x - b.x, a.y - b.y); }
++
++    private static double cross(Point a, Point b, Point c) {
++        return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
++    }
++}

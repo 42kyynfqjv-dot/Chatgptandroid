@@ -1,71 +1,73 @@
-# AI Home for Pixel
+# AI Home OS for Pixel 9a
 
-ChatGPT as the main phone experience, with normal Android Phone, Messages,
-Settings, calls, and notifications still available. The current deliverable is
-a **small launcher APK for the dev Pixel**, running on its existing Android OS.
-MCP and device automation are deferred. No project server runs the phone UI.
+This project builds a **replacement Android OS for Pixel 9a (`tegu`)**, based on
+a small GrapheneOS derivative. Official ChatGPT is the main conversational app;
+Android retains Phone, Messages, Settings, notifications, lock screen and
+recovery. MCP remains deferred. Cosmetic refinement is paused while OS
+integration and build preparation advance.
 
-## What this version does
+**There is no compiled or boot-tested OS image yet.** The current workspace has
+16 GiB RAM and about 29 GiB disk capacity, insufficient for a full source sync
+and Android build. The work here prepares real framework/product patches and
+verified build inputs; it is not a claim that the earlier APK is an OS.
 
-- Opens the official ChatGPT app when Home is pressed, after you enable
-  **ChatGPT on Home** and select AI Home as the default home app.
-- Provides **Phone**, **Messages**, **Settings**, and **All apps** on a controls
-  screen. The AI Home app icon always opens these controls.
-- Offers an optional **Phone controls** Quick Settings tile: swipe down from
-  ChatGPT to reach the native controls.
-- Keeps Android's incoming-call UI, notifications, volume controls, lock screen,
-  emergency access, and full Settings app in charge of their normal functions.
-- Opens the official ChatGPT Play listing for installation and updates. Play
-  remains available for maintenance without becoming the home experience.
+## OS integration now in source
 
-The official ChatGPT app remains unmodified. Voice and conversations stay inside
-it; this launcher cannot make ChatGPT operate the phone. The controls are reached
-through Android's shade or AI Home, rather than inserted into ChatGPT's UI.
+- [Gesture recognizer](os/gestures/README.md): one-finger triangle and square
+  geometry, with 239 synthetic assertions. These are not recorded phone tests.
+- [Framework observer](os/framework/README.md): a pinned `DisplayPolicy` hook
+  maps a completed triangle to the native dialer and a square to default
+  Messages. No edge hold or extra finger is required. It defaults **off** through
+  `aifirst_shape_gestures_enabled`.
+- [Product integration](os/product/README.md): a source-built Soong `AIHome`
+  module, initial HOME-role default, and product resource default enabling
+  ChatGPT-on-Home. Existing user choice and stock recovery/Settings remain.
+- Three canonical patches regenerated against hash-pinned changed files from
+  GrapheneOS `2026100600`, plus source and generated-input verification.
+- A source-only development lock and `userdebug` build path, separate from
+  production signing and OTA release gates.
 
-## Try it on the dev Pixel
+**Gesture touches still reach ChatGPT.** The observer does not intercept or
+retract them; ChatGPT may scroll, select or otherwise react before the native
+app opens. The framework controller, full Soong build, input behavior and phone
+boot still need real validation. A successful intent handoff does not place a
+call or send a message.
 
-1. Download `android-debug-and-lint` from the latest successful
-   [GitHub Actions run](https://github.com/42kyynfqjv-dot/Chatgptandroid/actions/workflows/components.yml)
-   and extract `app-debug.apk` on your MacBook.
-2. Install that APK on the dev Pixel and open **AI Home**. Check Phone,
-   Messages, Settings, and Open ChatGPT first.
-3. Add the **Phone controls** tile, enable **ChatGPT on Home**, and choose
-   **AI Home** as the default home app.
+The official ChatGPT APK is not bundled or modified. Installation and app
+updates use its official Play listing, independently of OS OTAs. Voice and
+conversations stay in the official app.
 
-The [short device guide](docs/pixel-quickstart.md) covers USB installation,
-the checks to make, and returning to Pixel Launcher. No bootloader unlock,
-wipe, OS flashing, or cloud connection is involved in this prototype.
+## Build path
 
-## Development
+Start with the [OS integration guide](docs/os-integration.md), then the
+[development setup](docs/development.md) and [security-update process](docs/security-updates.md).
+Full compilation requires a suitable runner, exact source verification and
+reviewed generated vendor/dependency inputs. No production signing keys or live
+update endpoint are required for the isolated development build; those remain
+mandatory for production.
 
-The modest cloud server builds the APK. The local MacBook transfers it to the
-local dev Pixel for physical tests. An APK build packages the launcher; it does
-not compile Android. See [development setup](docs/development.md) and the
-[Android component](android/README.md).
+The patch assembler fetches/checks only a small pinned source subset and
+manifest. It does **not** sync or compile complete upstream projects. No full
+source sync, factory/vendor archive verification, vendor generation, full Soong
+build, boot or flash has been completed. See [verification](docs/verification.md)
+for exact checks and limits.
 
-```sh
-bash android/test-core.sh
-make apk
-```
+The local MacBook and dev Pixel remain the later hardware-test path. Publishing
+sources or building artifacts does not authorize installation, unlocking,
+wiping or flashing.
 
-Build and lint checks do not establish on-phone behavior. Current and historical
-results are recorded in [verification](docs/verification.md).
-
-## Later work and reference
-
-The original replacement-OS goal remains a later, separate milestone. There is
-no flashable OS image in this repository. The proposed base is a small
-GrapheneOS derivative with its own signing and update responsibility.
+## Reference
 
 | Reference | Purpose |
 |---|---|
-| [Architecture](docs/architecture.md) | Current UI design and official-app boundary |
-| [Roadmap](docs/roadmap.md) | UI prototype, physical tests, then possible OS work |
-| [OS foundation](docs/os-foundation.md) | Base comparison, licenses, vendor dependencies |
-| [Security updates](docs/security-updates.md) | Future OS signing, OTA, and release process |
-| [Threat model](docs/threat-model.md) | Current app boundaries and deferred automation |
-| [ChatGPT feasibility](docs/chatgpt-feasibility.md) | Dated integration research; not a UI prerequisite |
-| [Bridge reference](bridge/README.md) | Archived relay experiment and protocol tests |
+| [Architecture](docs/architecture.md) | Framework, product, official-app and recovery boundaries |
+| [Roadmap](docs/roadmap.md) | Full OS build and physical validation gates |
+| [OS foundation](docs/os-foundation.md) | Base choice, source evidence, licenses and vendor dependencies |
+| [Security updates](docs/security-updates.md) | Source provenance, our signed updates and release process |
+| [Earlier APK quickstart](docs/pixel-quickstart.md) | Historical standalone UI test harness; not an OS installation guide |
+| [Android component](android/README.md) | AI Home app sources and isolated component build |
+| [ChatGPT feasibility](docs/chatgpt-feasibility.md) | Historical tool research; MCP is deferred |
+| [Archived bridge](bridge/README.md) | Superseded relay experiment |
 
-This project is unaffiliated with OpenAI, Google, GrapheneOS, and LineageOS.
+This project is unaffiliated with OpenAI, Google, GrapheneOS and LineageOS.
 See [LICENSE](LICENSE) and [NOTICE](NOTICE).
